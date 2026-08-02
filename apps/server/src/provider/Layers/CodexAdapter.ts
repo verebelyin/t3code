@@ -61,6 +61,7 @@ import {
   type CodexSessionRuntimeShape,
 } from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+import { buildCodexToolInvocation } from "./codexToolInvocation.ts";
 import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
 const isCodexAppServerProcessExitedError = Schema.is(CodexErrors.CodexAppServerProcessExitedError);
 const isCodexAppServerTransportError = Schema.is(CodexErrors.CodexAppServerTransportError);
@@ -481,6 +482,13 @@ function mapItemLifecycle(
         ? "completed"
         : undefined;
 
+  const invocation = buildCodexToolInvocation(itemType, item as Record<string, unknown>, {
+    // Diffs only once the item is final; `item.started` fires before the patch
+    // exists and the streaming update would re-ship it.
+    includeDiffs: lifecycle === "item.completed",
+    detail,
+  });
+
   return {
     ...runtimeEventBase(event, canonicalThreadId),
     type: lifecycle,
@@ -489,6 +497,7 @@ function mapItemLifecycle(
       ...(status ? { status } : {}),
       ...(itemTitle(itemType, item) ? { title: itemTitle(itemType, item) } : {}),
       ...(detail ? { detail } : {}),
+      ...(invocation ? { tool: invocation } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
   };
