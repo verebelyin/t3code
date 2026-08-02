@@ -80,11 +80,15 @@ function collectChangedFiles(
   }
 }
 
+/**
+ * Adapters nest a command two ways. Codex and the ACP providers wrap the tool
+ * call in `data.item`; Claude spreads it flat as `data.{toolName,input,result}`.
+ * Reading only the nested shape left Claude rows with no command at all, so the
+ * client reconstructed one from the `detail` summary — which is prefixed
+ * (`Bash: …`) and clipped, and rendered as such.
+ */
 function projectCommandData(data: Record<string, unknown>): Record<string, unknown> | undefined {
-  const item = asRecord(data.item);
-  if (!item) {
-    return undefined;
-  }
+  const item = asRecord(data.item) ?? data;
 
   const projectedItem: Record<string, unknown> = {};
   if ("command" in item) {

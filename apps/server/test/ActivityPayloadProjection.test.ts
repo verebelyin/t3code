@@ -188,6 +188,60 @@ describe("projectActivityPayload", () => {
     expect(projectActivityPayload(fixtures[4]!)).toBe(fixtures[4]);
   });
 
+  it("passes the top-level tool invocation through while still dropping data.input", () => {
+    // Load-bearing for `Read(src/foo.ts)` rows: the projection rewrites only
+    // `payload.data`, so `payload.tool` reaches clients without widening the
+    // allowlist. If this regresses, tool rows silently fall back to the
+    // generic heading instead of failing loudly.
+    const tool = {
+      name: "Edit",
+      target: "/repo/src/a.ts",
+      targetKind: "path",
+      changes: [{ path: "/repo/src/a.ts", kind: "update", diff: "@@ -1,1 +1,1 @@\n-a\n+b" }],
+    };
+    const activity = {
+      ...fixtures[0]!,
+      payload: {
+        itemType: "file_change",
+        tool,
+        data: {
+          toolName: "Edit",
+          input: { file_path: "/repo/src/a.ts", old_string: "a", new_string: "b" },
+        },
+      },
+    } as OrchestrationThreadActivity;
+
+    const payload = projectActivityPayload(activity).payload as Record<string, unknown>;
+    expect(payload.tool).toEqual(tool);
+    const data = payload.data as Record<string, unknown>;
+    expect(data.toolName).toBeUndefined();
+    expect(data.input).toBeUndefined();
+  });
+
+  it("keeps the command from Claude's flat data shape", () => {
+    // Claude spreads the call as `data.{toolName,input,result}` with no `item`
+    // wrapper. Dropping it here left the client rebuilding the command from the
+    // `detail` summary, which renders as a prefixed, clipped `Bash: cd …`.
+    const activity = {
+      ...fixtures[0]!,
+      payload: {
+        itemType: "command_execution",
+        detail: "Bash: cd /repo && pnpm test --filter web",
+        data: {
+          toolName: "Bash",
+          input: { command: "cd /repo && pnpm test --filter web", description: "run tests" },
+          result: { content: "bulk output that must not ship" },
+        },
+      },
+    } as OrchestrationThreadActivity;
+
+    const data = projectActivityPayload(activity).payload.data as Record<string, unknown>;
+    expect(data.item).toEqual({ input: { command: "cd /repo && pnpm test --filter web" } });
+    // The rest of the input and the raw result are still dropped.
+    expect(JSON.stringify(data)).not.toContain("bulk output");
+    expect(JSON.stringify(data)).not.toContain("run tests");
+  });
+
   it("keeps current web and mobile derived output identical for every tool item type", () => {
     for (const activity of fixtures) {
       const projected = projectActivityPayload(activity);
