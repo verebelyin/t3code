@@ -43,6 +43,7 @@ import {
 } from "../../lib/diffRendering";
 import { getSyntaxHighlighterPromise } from "../../lib/syntaxHighlighting";
 import { formatTaskProgressMeta } from "../../taskProgressDisplay";
+import { groupSubagentEntries } from "../../subagentGrouping";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
@@ -1177,6 +1178,7 @@ const WorkGroupSection = memo(function WorkGroupSection({
     () => groupedEntries.filter((entry) => !workEntryIndicatesToolNeutralStatus(entry)),
     [groupedEntries],
   );
+  const subagentGroups = useMemo(() => groupSubagentEntries(nonEmptyEntries), [nonEmptyEntries]);
   const onlyToolEntries = nonEmptyEntries.every((entry) => workLogEntryIsToolLike(entry));
   const groupLabel = onlyToolEntries
     ? nonEmptyEntries.length === 1
@@ -1194,15 +1196,26 @@ const WorkGroupSection = memo(function WorkGroupSection({
         </p>
       )}
       <div className="space-y-px">
-        {nonEmptyEntries.map((workEntry) => (
-          <SimpleWorkEntryRow
-            key={workEntry.id}
-            workEntry={workEntry}
-            workspaceRoot={workspaceRoot}
-            richToolCallRows={richToolCallRows}
-            resolvedTheme={resolvedTheme}
-          />
-        ))}
+        {subagentGroups.map(({ entry, children }) =>
+          children.length > 0 ? (
+            <SubagentWorkEntryGroup
+              key={entry.id}
+              entry={entry}
+              childEntries={children}
+              workspaceRoot={workspaceRoot}
+              richToolCallRows={richToolCallRows}
+              resolvedTheme={resolvedTheme}
+            />
+          ) : (
+            <SimpleWorkEntryRow
+              key={entry.id}
+              workEntry={entry}
+              workspaceRoot={workspaceRoot}
+              richToolCallRows={richToolCallRows}
+              resolvedTheme={resolvedTheme}
+            />
+          ),
+        )}
       </div>
     </section>
   );
@@ -2003,6 +2016,65 @@ function toolWorkEntryHeading(
 }
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
+/**
+ * An agent row plus the tool calls its subagent made.
+ *
+ * Children start collapsed. A subagent commonly runs fifteen or more tools, and
+ * expanding them by default would bury the main thread's work in someone else's
+ * — the count on the toggle is what tells you there is something to open.
+ */
+const SubagentWorkEntryGroup = memo(function SubagentWorkEntryGroup(props: {
+  entry: TimelineWorkEntry;
+  childEntries: ReadonlyArray<TimelineWorkEntry>;
+  workspaceRoot: string | undefined;
+  richToolCallRows: boolean;
+  resolvedTheme: "light" | "dark";
+}) {
+  const { entry, childEntries, workspaceRoot, richToolCallRows, resolvedTheme } = props;
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="space-y-px">
+      <SimpleWorkEntryRow
+        workEntry={entry}
+        workspaceRoot={workspaceRoot}
+        richToolCallRows={richToolCallRows}
+        resolvedTheme={resolvedTheme}
+      />
+      <button
+        type="button"
+        className="ms-7 flex items-center gap-1 rounded-sm px-0.5 py-px text-[11px] text-muted-foreground/55 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <ChevronRightIcon
+          className={cn(
+            "size-3 shrink-0 transition-transform duration-200",
+            expanded && "rotate-90",
+          )}
+          aria-hidden
+        />
+        {childEntries.length === 1 ? "1 subagent step" : `${childEntries.length} subagent steps`}
+      </button>
+      {expanded ? (
+        // Indented and rail-marked so a nested call is never mistaken for the
+        // main agent's own work.
+        <div className="ms-7 space-y-px border-s border-border/45 ps-2">
+          {childEntries.map((child) => (
+            <SimpleWorkEntryRow
+              key={child.id}
+              workEntry={child}
+              workspaceRoot={workspaceRoot}
+              richToolCallRows={richToolCallRows}
+              resolvedTheme={resolvedTheme}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+});
 
 const COMMAND_CODE_CLASS =
   "min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/90 select-text";
