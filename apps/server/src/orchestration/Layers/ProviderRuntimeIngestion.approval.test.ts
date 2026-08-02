@@ -2,6 +2,7 @@ import {
   EventId,
   ProviderDriverKind,
   RuntimeRequestId,
+  RuntimeTaskId,
   ThreadId,
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
@@ -29,5 +30,42 @@ describe("runtimeEventToActivities approval details", () => {
 
     expect(activity?.kind).toBe("approval.requested");
     expect((activity?.payload as Record<string, unknown> | undefined)?.detail).toBe(detail);
+  });
+});
+
+describe("runtimeEventToActivities task reports", () => {
+  // A subagent's report is the deliverable of running it. The row preview limit
+  // used to apply to the body too, cutting every report to a sentence and a half.
+  const longReport = `## Findings\n\n${"A real finding sentence that carries detail. ".repeat(60)}`;
+
+  const taskCompleted = (summary: string) =>
+    ({
+      type: "task.completed",
+      eventId: EventId.make("evt-task-completed"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: "2026-08-02T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      payload: { taskId: RuntimeTaskId.make("task-1"), status: "completed", summary },
+    }) satisfies ProviderRuntimeEvent;
+
+  it("keeps the full report in detail while the label stays short", () => {
+    const [activity] = runtimeEventToActivities(taskCompleted(longReport));
+    const payload = activity?.payload as Record<string, unknown>;
+
+    expect(longReport.length).toBeGreaterThan(1_000);
+    expect(payload.detail).toBe(longReport);
+    // The label is a row heading, so it keeps the preview-sized limit.
+    expect((payload.summary as string).length).toBe(180);
+  });
+
+  it("still bounds a runaway report", () => {
+    const runaway = "x".repeat(20_000);
+    const payload = runtimeEventToActivities(taskCompleted(runaway))[0]?.payload as Record<
+      string,
+      unknown
+    >;
+
+    expect((payload.detail as string).length).toBe(8_000);
+    expect(payload.detail).toMatch(/\.\.\.$/);
   });
 });

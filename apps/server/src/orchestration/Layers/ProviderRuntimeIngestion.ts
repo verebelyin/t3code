@@ -204,6 +204,19 @@ function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }
 
+/**
+ * Budget for a subagent's written report, which the client shows in the
+ * expanded task row.
+ *
+ * The 180-char default is sized for a one-line row preview and silently cut
+ * every subagent report to a sentence and a half — the report *is* the
+ * deliverable of running the subagent, so the row was hiding the only thing
+ * worth reading. Generous but still bounded, and on the same order as the
+ * per-invocation diff budget. The row label keeps the short limit; only the
+ * body gets this one.
+ */
+const TASK_REPORT_LIMIT = 8_000;
+
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
   const trimmed = planMarkdown?.trim();
   if (!trimmed) {
@@ -527,7 +540,10 @@ export function runtimeEventToActivities(
             ...(event.payload.description.trim().length > 0
               ? { title: truncateDetail(event.payload.description, 120) }
               : {}),
-            detail: truncateDetail(event.payload.summary ?? event.payload.description),
+            detail: truncateDetail(
+              event.payload.summary ?? event.payload.description,
+              TASK_REPORT_LIMIT,
+            ),
             ...(event.payload.summary ? { summary: truncateDetail(event.payload.summary) } : {}),
             ...(event.payload.lastToolName ? { lastToolName: event.payload.lastToolName } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
@@ -560,7 +576,7 @@ export function runtimeEventToActivities(
             ...(event.payload.summary
               ? {
                   summary: truncateDetail(event.payload.summary),
-                  detail: truncateDetail(event.payload.summary),
+                  detail: truncateDetail(event.payload.summary, TASK_REPORT_LIMIT),
                 }
               : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
