@@ -171,6 +171,13 @@ interface ToolInFlight {
   readonly input: Record<string, unknown>;
   readonly partialInputJson: string;
   readonly lastEmittedInputFingerprint?: string;
+  /**
+   * The `Task` tool call this one belongs to, for a subagent's work.
+   *
+   * Set only for tools recovered from a complete assistant message; the main
+   * agent's own calls arrive over the stream and have no parent.
+   */
+  readonly parentToolUseId?: string;
 }
 
 interface ClaudeTaskState {
@@ -2411,6 +2418,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           // Terminal for input purposes: the tool has run, so the input is final
           // and diffs are safe to attach exactly once.
           ...toolInvocationFor(tool, { includeDiffs: true, result: toolUseResult }),
+          ...(tool.parentToolUseId ? { parentToolCallId: tool.parentToolUseId } : {}),
           data: toolData,
         },
         providerRefs: nativeProviderRefs(context, {
@@ -2464,6 +2472,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
           ...toolInvocationFor(tool, { includeDiffs: true, result: toolUseResult }),
+          ...(tool.parentToolUseId ? { parentToolCallId: tool.parentToolUseId } : {}),
           data: toolData,
         },
         providerRefs: nativeProviderRefs(context, {
@@ -2488,6 +2497,107 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }
 
       context.inFlightTools.delete(index);
+    }
+  });
+
+  /**
+   * Create in-flight tools for the `tool_use` blocks of a subagent's assistant
+   * message, and announce them as started.
+   *
+   * Mirrors the `content_block_start` path, which only ever sees the main
+   * agent: subagent turns are not streamed, they land whole. Registering them in
+   * `inFlightTools` is also what lets their results resolve later, since
+   * `handleUserMessage` matches a result to its call by item id.
+   *
+   * Guarded on `parent_tool_use_id` so the main agent's own calls are not
+   * created twice — its assistant message repeats what the stream already
+   * delivered.
+   */
+  const registerSubagentToolUses = Effect.fn("registerSubagentToolUses")(function* (
+    context: ClaudeSessionContext,
+    message: SDKMessage,
+  ) {
+    if (message.type !== "assistant") {
+      return;
+    }
+    const parentToolUseId = message.parent_tool_use_id;
+    if (typeof parentToolUseId !== "string" || parentToolUseId.length === 0) {
+      return;
+    }
+    const content = message.message?.content;
+    if (!Array.isArray(content)) {
+      return;
+    }
+
+    for (const rawBlock of content) {
+      if (!rawBlock || typeof rawBlock !== "object") {
+        continue;
+      }
+      const block = rawBlock as { type?: unknown; id?: unknown; name?: unknown; input?: unknown };
+      if (block.type !== "tool_use" || typeof block.id !== "string") {
+        continue;
+      }
+      const toolName = typeof block.name === "string" ? block.name : "";
+      if (toolName.length === 0) {
+        continue;
+      }
+      // Replays and retries can deliver the same message twice; the item id is
+      // the provider's own, so it is the honest dedupe key.
+      const alreadyTracked = Array.from(context.inFlightTools.values()).some(
+        (tracked) => tracked.itemId === block.id,
+      );
+      if (alreadyTracked) {
+        continue;
+      }
+
+      const itemType = classifyToolItemType(toolName);
+      const toolInput =
+        typeof block.input === "object" && block.input !== null
+          ? (block.input as Record<string, unknown>)
+          : {};
+      const tool: ToolInFlight = {
+        itemId: block.id,
+        itemType,
+        toolName,
+        title: titleForTool(itemType),
+        detail: summarizeToolRequest(toolName, toolInput),
+        input: toolInput,
+        partialInputJson: "",
+        parentToolUseId,
+      };
+
+      // Negative indices, like synthetic assistant text blocks: the stream owns
+      // the non-negative range and these calls never had a stream index.
+      const index = context.turnState
+        ? context.turnState.nextSyntheticAssistantBlockIndex--
+        : -1 - context.inFlightTools.size;
+      context.inFlightTools.set(index, tool);
+
+      const stamp = yield* makeEventStamp();
+      yield* offerRuntimeEvent({
+        type: "item.started",
+        eventId: stamp.eventId,
+        provider: PROVIDER,
+        createdAt: stamp.createdAt,
+        threadId: context.session.threadId,
+        ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+        itemId: asRuntimeItemId(tool.itemId),
+        payload: {
+          itemType: tool.itemType,
+          status: "inProgress",
+          title: tool.title,
+          ...(tool.detail ? { detail: tool.detail } : {}),
+          ...toolInvocationFor(tool, { includeDiffs: false }),
+          parentToolCallId: parentToolUseId,
+          data: { toolName: tool.toolName, input: toolInput },
+        },
+        providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+        raw: {
+          source: "claude.sdk.message",
+          method: "claude/assistant/subagent_tool_use",
+          payload: message,
+        },
+      });
     }
   });
 
@@ -2540,6 +2650,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         },
       });
     }
+
+    // A subagent's tool calls never come over the stream — they arrive only as
+    // complete assistant messages tagged with the spawning `Task` id. Nothing
+    // else registers them, so without this the entire inner workings of a
+    // subagent are absent from the timeline.
+    yield* registerSubagentToolUses(context, message);
 
     const content = message.message?.content;
     if (Array.isArray(content)) {
