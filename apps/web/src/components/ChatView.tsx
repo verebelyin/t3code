@@ -3962,6 +3962,7 @@ function ChatViewContent(props: ChatViewProps) {
   // so the banner and the sidebar row never disagree.
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
   const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
+  const richToolCallRows = useClientSettings((settings) => settings.richToolCallRows);
   const activeThreadPr = resolveThreadPr({
     threadBranch: activeThread?.branch ?? null,
     gitStatus: gitStatusQuery.data ?? null,
@@ -5822,6 +5823,7 @@ function ChatViewContent(props: ChatViewProps) {
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
+                richToolCallRows={richToolCallRows}
                 skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
                 anchorMessageId={timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}

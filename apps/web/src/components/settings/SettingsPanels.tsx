@@ -1109,6 +1109,30 @@ export function AppearanceSettingsPanel() {
             />
           }
         />
+
+        <SettingsRow
+          {...searchableSetting("tool-call-rows")}
+          description="Name tool calls in the timeline, like Read(src/app.ts), and show an inline diff when a file changes. Off shows one generic row per tool call."
+          resetAction={
+            settings.richToolCallRows !== DEFAULT_UNIFIED_SETTINGS.richToolCallRows ? (
+              <SettingResetButton
+                label="detailed tool calls"
+                onClick={() =>
+                  updateSettings({
+                    richToolCallRows: DEFAULT_UNIFIED_SETTINGS.richToolCallRows,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.richToolCallRows}
+              onCheckedChange={(checked) => updateSettings({ richToolCallRows: Boolean(checked) })}
+              aria-label="Show detailed tool calls with file names and inline diffs"
+            />
+          }
+        />
       </SettingsSection>
     </SettingsPageContainer>
   );

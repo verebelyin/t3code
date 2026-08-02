@@ -1,4 +1,10 @@
-import { CheckpointRef, EnvironmentId, MessageId, TurnId } from "@t3tools/contracts";
+import {
+  CheckpointRef,
+  EnvironmentId,
+  MessageId,
+  type ToolInvocation,
+  TurnId,
+} from "@t3tools/contracts";
 import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
@@ -190,6 +196,7 @@ function buildProps() {
     resolvedTheme: "light" as const,
     timestampFormat: "locale" as const,
     workspaceRoot: undefined,
+    richToolCallRows: true,
     anchorMessageId: null,
     onAnchorReady: () => {},
     onAnchorSizeChanged: () => {},
@@ -525,6 +532,116 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Context compacted");
     expect(markup).toContain("Work Log");
+  });
+
+  it("renders a named tool row with a bare workspace-relative path", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        workspaceRoot="/Users/me/dev/t3code"
+        timelineEntries={[
+          {
+            id: "entry-1",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "work-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Tool call",
+              tone: "tool",
+              toolTitle: "Tool call",
+              itemType: "dynamic_tool_call",
+              toolInvocation: {
+                name: "Read",
+                target: "/Users/me/dev/t3code/apps/web/src/a.ts",
+                targetKind: "path",
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Read(apps/web/src/a.ts)");
+    // The target is already inside the parentheses — it must not be repeated
+    // as a preview suffix.
+    expect(markup).not.toContain("Read(apps/web/src/a.ts) - ");
+    expect(markup).not.toContain("/Users/me/dev/t3code/apps/web");
+  });
+
+  it("renders non-path targets verbatim", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-1",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "work-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Tool call",
+              tone: "tool",
+              toolTitle: "Command run",
+              itemType: "command_execution",
+              toolInvocation: {
+                name: "Bash",
+                target: "pnpm test run",
+                targetKind: "command",
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Bash(pnpm test run)");
+  });
+
+  it("falls back to the generic heading when the setting is off", () => {
+    // Toggle-off regression guard: with `richToolCallRows` false the output must
+    // be identical to an entry that carries no invocation at all, so turning the
+    // feature off is a true revert rather than a third rendering mode.
+    const entry = {
+      id: "work-1",
+      createdAt: "2026-03-17T19:12:28.000Z",
+      label: "Tool call",
+      tone: "tool" as const,
+      toolTitle: "Tool call",
+      itemType: "dynamic_tool_call" as const,
+      detail: "Read: some detail",
+    };
+    const timelineEntries = (invocation?: ToolInvocation) => [
+      {
+        id: "entry-1",
+        kind: "work" as const,
+        createdAt: "2026-03-17T19:12:28.000Z",
+        entry: invocation ? { ...entry, toolInvocation: invocation } : entry,
+      },
+    ];
+
+    const withInvocationOff = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        richToolCallRows={false}
+        timelineEntries={timelineEntries({
+          name: "Read",
+          target: "/repo/src/a.ts",
+          targetKind: "path",
+        })}
+      />,
+    );
+    const withoutInvocation = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        richToolCallRows={false}
+        timelineEntries={timelineEntries()}
+      />,
+    );
+
+    expect(withInvocationOff).toBe(withoutInvocation);
+    expect(withInvocationOff).not.toContain("Read(");
   });
 
   it("formats changed file paths from the workspace root", () => {

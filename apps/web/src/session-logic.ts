@@ -7,6 +7,7 @@ import {
   type OrchestrationThreadActivity,
   type OrchestrationProposedPlanId,
   ProviderDriverKind,
+  type ToolInvocation,
   type ToolLifecycleItemType,
   type UserInputQuestion,
   type ThreadId,
@@ -68,10 +69,21 @@ export interface WorkLogEntry {
   detail?: string;
   command?: string;
   rawCommand?: string;
+  /**
+   * Exit status of a `command_execution`, when the provider reported one.
+   *
+   * Providers spell it two ways — a structured `result.exitCode`, or a
+   * `<exited with exit code N>` suffix on `detail` that gets stripped before the
+   * output is shown. Both land here so the row can label the run without
+   * re-parsing the output string at render time.
+   */
+  exitCode?: number;
   changedFiles?: ReadonlyArray<string>;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   toolData?: unknown;
+  /** Provider-agnostic tool description, for `Read(src/foo.ts)`-style rows. */
+  toolInvocation?: ToolInvocation;
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
   /** From runtime item / task payload `status` when present (e.g. tool.updated). */
@@ -728,6 +740,12 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (commandPreview.rawCommand) {
     entry.rawCommand = commandPreview.rawCommand;
   }
+  if (itemType === "command_execution") {
+    const exitCode = extractCommandExitCode(payload);
+    if (exitCode !== undefined) {
+      entry.exitCode = exitCode;
+    }
+  }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
   }
@@ -739,6 +757,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     if (data?.item !== undefined) {
       entry.toolData = data.item;
     }
+  }
+  const toolInvocation = isTaskActivity ? undefined : extractToolInvocation(payload);
+  if (toolInvocation) {
+    entry.toolInvocation = toolInvocation;
   }
   if (itemType) {
     entry.itemType = itemType;
@@ -803,6 +825,78 @@ function shouldCollapseToolLifecycleEntries(
   );
 }
 
+const TOOL_INVOCATION_TARGET_KINDS = new Set([
+  "path",
+  "pattern",
+  "command",
+  "agent",
+  "url",
+  "text",
+]);
+const TOOL_INVOCATION_CHANGE_KINDS = new Set(["add", "update", "delete"]);
+
+/**
+ * Read `payload.tool` defensively.
+ *
+ * `OrchestrationThreadActivity.payload` is `Schema.Unknown` on the client, so
+ * this is genuinely untrusted input: an older server, a replayed activity, or a
+ * future adapter may all send something other than the current shape. Anything
+ * that fails validation is dropped so the row falls back to the generic
+ * heading rather than rendering garbage.
+ */
+function extractToolInvocation(
+  payload: Record<string, unknown> | null | undefined,
+): ToolInvocation | undefined {
+  const tool = asRecord(payload?.tool);
+  const name = typeof tool?.name === "string" ? tool.name.trim() : "";
+  if (!tool || name.length === 0) {
+    return undefined;
+  }
+
+  const target =
+    typeof tool.target === "string" && tool.target.trim().length > 0 ? tool.target : undefined;
+  const targetKind =
+    typeof tool.targetKind === "string" && TOOL_INVOCATION_TARGET_KINDS.has(tool.targetKind)
+      ? (tool.targetKind as ToolInvocation["targetKind"])
+      : undefined;
+
+  const changes: Array<NonNullable<ToolInvocation["changes"]>[number]> = [];
+  if (Array.isArray(tool.changes)) {
+    for (const rawChange of tool.changes) {
+      const change = asRecord(rawChange);
+      const path = typeof change?.path === "string" ? change.path.trim() : "";
+      if (path.length === 0) continue;
+      changes.push({
+        path,
+        ...(typeof change?.kind === "string" && TOOL_INVOCATION_CHANGE_KINDS.has(change.kind)
+          ? { kind: change.kind as "add" | "update" | "delete" }
+          : {}),
+        ...(typeof change?.diff === "string" && change.diff.length > 0
+          ? { diff: change.diff }
+          : {}),
+        ...(change?.diffTruncated === true ? { diffTruncated: true } : {}),
+      });
+    }
+  }
+
+  const output =
+    typeof tool.output === "string" && tool.output.trim().length > 0 ? tool.output : undefined;
+  const exitCode =
+    typeof tool.exitCode === "number" && Number.isInteger(tool.exitCode)
+      ? tool.exitCode
+      : undefined;
+
+  return {
+    name,
+    ...(target ? { target } : {}),
+    ...(targetKind ? { targetKind } : {}),
+    ...(changes.length > 0 ? { changes } : {}),
+    ...(output ? { output } : {}),
+    ...(tool.outputTruncated === true ? { outputTruncated: true } : {}),
+    ...(exitCode !== undefined ? { exitCode } : {}),
+  };
+}
+
 function mergeDerivedWorkLogEntries(
   previous: DerivedWorkLogEntry,
   next: DerivedWorkLogEntry,
@@ -811,6 +905,7 @@ function mergeDerivedWorkLogEntries(
   const detail = next.detail ?? previous.detail;
   const command = next.command ?? previous.command;
   const rawCommand = next.rawCommand ?? previous.rawCommand;
+  const exitCode = next.exitCode ?? previous.exitCode;
   const toolTitle = next.toolTitle ?? previous.toolTitle;
   const itemType = next.itemType ?? previous.itemType;
   const requestKind = next.requestKind ?? previous.requestKind;
@@ -818,12 +913,15 @@ function mergeDerivedWorkLogEntries(
   const toolCallId = next.toolCallId ?? previous.toolCallId;
   const toolLifecycleStatus = next.toolLifecycleStatus ?? previous.toolLifecycleStatus;
   const toolData = next.toolData ?? previous.toolData;
+  const toolInvocation = mergeToolInvocations(previous.toolInvocation, next.toolInvocation);
   return {
     ...previous,
     ...next,
     ...(detail ? { detail } : {}),
     ...(command ? { command } : {}),
     ...(rawCommand ? { rawCommand } : {}),
+    // `0` is a real exit code, so this cannot be a truthiness check.
+    ...(exitCode !== undefined ? { exitCode } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
     ...(toolTitle ? { toolTitle } : {}),
     ...(itemType ? { itemType } : {}),
@@ -832,7 +930,41 @@ function mergeDerivedWorkLogEntries(
     ...(toolCallId ? { toolCallId } : {}),
     ...(toolLifecycleStatus !== undefined ? { toolLifecycleStatus } : {}),
     ...(toolData !== undefined ? { toolData } : {}),
+    ...(toolInvocation !== undefined ? { toolInvocation } : {}),
   };
+}
+
+/**
+ * Prefer whichever side actually carries payload content.
+ *
+ * Adapters attach diffs and command output only on terminal events, so the
+ * streaming `tool.updated` (name + target, nothing else) normally arrives before
+ * `tool.completed` (with the payload). A plain `next ?? previous` would be
+ * correct only by ordering luck — if the events ever collapse in the other
+ * order, the diff or the output would be dropped.
+ */
+function mergeToolInvocations(
+  previous: ToolInvocation | undefined,
+  next: ToolInvocation | undefined,
+): ToolInvocation | undefined {
+  if (!next) return previous;
+  if (!previous) return next;
+  const hasDiff = (invocation: ToolInvocation) =>
+    invocation.changes?.some((change) => change.diff !== undefined) ?? false;
+  const merged = { ...next };
+  if (!hasDiff(next) && hasDiff(previous)) {
+    merged.changes = previous.changes;
+  }
+  if (next.output === undefined && previous.output !== undefined) {
+    merged.output = previous.output;
+    if (previous.outputTruncated === true) {
+      merged.outputTruncated = true;
+    }
+  }
+  if (next.exitCode === undefined && previous.exitCode !== undefined) {
+    merged.exitCode = previous.exitCode;
+  }
+  return merged;
 }
 
 function mergeChangedFiles(
@@ -1187,6 +1319,22 @@ function extractToolDetail(
   }
 
   return null;
+}
+
+/**
+ * Exit status of a command tool call, from whichever place the provider put it.
+ *
+ * Codex reports a structured `result.exitCode`; the `<exited with exit code N>`
+ * suffix on `detail` is the fallback, and is the only form some providers send.
+ */
+function extractCommandExitCode(payload: Record<string, unknown> | null): number | undefined {
+  const result = asRecord(asRecord(asRecord(payload?.data)?.item)?.result);
+  const structured = result?.exitCode;
+  if (typeof structured === "number" && Number.isInteger(structured)) {
+    return structured;
+  }
+  const rawDetail = asTrimmedString(payload?.detail);
+  return rawDetail ? stripTrailingExitCode(rawDetail).exitCode : undefined;
 }
 
 function stripTrailingExitCode(value: string): {

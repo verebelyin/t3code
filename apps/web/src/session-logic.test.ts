@@ -711,6 +711,136 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
   });
 
+  it("carries payload.tool through as toolInvocation", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "tool-1",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          tool: {
+            name: "Edit",
+            target: "/repo/src/a.ts",
+            targetKind: "path",
+            changes: [{ path: "/repo/src/a.ts", kind: "update", diff: "@@ -1,1 +1,1 @@\n-a\n+b" }],
+          },
+        },
+      }),
+    ]);
+
+    expect(entries[0]?.toolInvocation).toEqual({
+      name: "Edit",
+      target: "/repo/src/a.ts",
+      targetKind: "path",
+      changes: [{ path: "/repo/src/a.ts", kind: "update", diff: "@@ -1,1 +1,1 @@\n-a\n+b" }],
+    });
+  });
+
+  it("drops a malformed tool payload rather than rendering garbage", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "tool-1",
+        kind: "tool.completed",
+        payload: { itemType: "file_change", tool: { target: "no name here" } },
+      }),
+    ]);
+    expect(entries[0]?.toolInvocation).toBeUndefined();
+  });
+
+  it("ignores unknown targetKind and change entries without a path", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "tool-1",
+        kind: "tool.completed",
+        payload: {
+          itemType: "file_change",
+          tool: {
+            name: "Edit",
+            target: "x",
+            targetKind: "bogus",
+            changes: [{ kind: "update" }, { path: "/ok.ts" }],
+          },
+        },
+      }),
+    ]);
+    expect(entries[0]?.toolInvocation).toEqual({
+      name: "Edit",
+      target: "x",
+      changes: [{ path: "/ok.ts" }],
+    });
+  });
+
+  it("prefers the diff-bearing invocation when collapsing lifecycle entries", () => {
+    // The streaming tool.updated carries name+target only; tool.completed adds
+    // the diff. Collapsing must keep the diff regardless of arrival order.
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "tool-update",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.updated",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          data: { toolCallId: "call-1" },
+          tool: { name: "Edit", target: "/repo/a.ts", targetKind: "path" },
+        },
+      }),
+      makeActivity({
+        id: "tool-complete",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          data: { toolCallId: "call-1" },
+          tool: {
+            name: "Edit",
+            target: "/repo/a.ts",
+            targetKind: "path",
+            changes: [{ path: "/repo/a.ts", kind: "update", diff: "@@ -1,1 +1,1 @@\n-a\n+b" }],
+          },
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.toolInvocation?.changes?.[0]?.diff).toBe("@@ -1,1 +1,1 @@\n-a\n+b");
+  });
+
+  it("groups tool entries identically with and without a tool payload", () => {
+    // Grouping regression guard: `payload.tool` is additive, so the "N tool
+    // calls" collapse must be unaffected by its presence.
+    const build = (withTool: boolean) =>
+      deriveWorkLogEntries([
+        makeActivity({
+          id: "tool-update",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          kind: "tool.updated",
+          summary: "File change",
+          payload: {
+            itemType: "file_change",
+            data: { toolCallId: "call-1" },
+            ...(withTool ? { tool: { name: "Edit", target: "/repo/a.ts" } } : {}),
+          },
+        }),
+        makeActivity({
+          id: "tool-complete",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          kind: "tool.completed",
+          summary: "File change",
+          payload: {
+            itemType: "file_change",
+            data: { toolCallId: "call-1" },
+            ...(withTool ? { tool: { name: "Edit", target: "/repo/a.ts" } } : {}),
+          },
+        }),
+      ]);
+
+    const withTool = build(true).map(({ toolInvocation: _ignored, ...rest }) => rest);
+    expect(withTool).toEqual(build(false));
+  });
+
   it("omits task.started but shows task.progress and task.completed", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1116,7 +1246,42 @@ describe("deriveWorkLogEntries", () => {
       detail: '{ "dev": "vite dev --port 3000" }',
       itemType: "command_execution",
       toolTitle: "bash",
+      exitCode: 0,
     });
+  });
+
+  it("keeps the exit code that gets stripped off a command detail", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        id: "failing-command",
+        kind: "tool.completed",
+        summary: "bash",
+        payload: {
+          itemType: "command_execution",
+          title: "bash",
+          detail: "boom: no such file <exited with exit code 2>",
+          data: { item: { command: "cat missing.txt" } },
+        },
+      }),
+    ]);
+    // The suffix is stripped from the shown output but survives as a status.
+    expect(entry?.detail).toBe("boom: no such file");
+    expect(entry?.exitCode).toBe(2);
+  });
+
+  it("leaves exitCode unset for a non-command tool call", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        id: "read-tool",
+        kind: "tool.completed",
+        summary: "Read",
+        payload: {
+          itemType: "dynamic_tool_call",
+          detail: "some text <exited with exit code 3>",
+        },
+      }),
+    ]);
+    expect(entry?.exitCode).toBeUndefined();
   });
 
   it("extracts changed file paths for file-change tool activities", () => {

@@ -3,14 +3,17 @@ import {
   type MessageId,
   type ScopedThreadRef,
   type ServerProviderSkill,
+  type ToolInvocation,
   type TurnId,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
+import { formatToolInvocationLabel, toolDisplayName } from "@t3tools/shared/toolInvocationLabel";
 import {
   createContext,
   Fragment,
   memo,
+  Suspense,
   use,
   useCallback,
   useEffect,
@@ -36,7 +39,9 @@ import {
   getRenderablePatch,
   resolveDiffThemeName,
   resolveFileDiffPath,
+  type DiffThemeName,
 } from "../../lib/diffRendering";
+import { getSyntaxHighlighterPromise } from "../../lib/syntaxHighlighting";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
@@ -108,6 +113,11 @@ import {
 import { SkillInlineText } from "./SkillInlineText";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import {
+  buildCommandInvocationView,
+  type CommandInvocationView,
+} from "../../commandInvocationDisplay";
+import { buildToolInvocationPatch } from "../../toolInvocationDisplay";
+import {
   buildReviewCommentRenderablePatch,
   formatReviewCommentFence,
   parseReviewCommentMessageSegments,
@@ -128,6 +138,7 @@ interface TimelineRowSharedState {
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
+  richToolCallRows: boolean;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
@@ -175,6 +186,7 @@ interface MessagesTimelineProps {
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
+  richToolCallRows: boolean;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   anchorMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
@@ -210,6 +222,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
+  richToolCallRows,
   skills = EMPTY_TIMELINE_SKILLS,
   anchorMessageId,
   onAnchorReady,
@@ -423,6 +436,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       markdownCwd,
       resolvedTheme,
       workspaceRoot,
+      richToolCallRows,
       skills,
       activeThreadEnvironmentId,
       onRevertUserMessage,
@@ -437,6 +451,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       markdownCwd,
       resolvedTheme,
       workspaceRoot,
+      richToolCallRows,
       skills,
       activeThreadEnvironmentId,
       onRevertUserMessage,
@@ -1153,7 +1168,10 @@ const WorkGroupSection = memo(function WorkGroupSection({
 }: {
   groupedEntries: Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"];
 }) {
-  const { workspaceRoot } = use(TimelineRowCtx);
+  // Read context here and pass down as props: `SimpleWorkEntryRow` is memoized
+  // and there is one per tool call, so a `use(TimelineRowCtx)` inside it would
+  // re-render every row whenever any unrelated context field changes.
+  const { workspaceRoot, richToolCallRows, resolvedTheme } = use(TimelineRowCtx);
   const nonEmptyEntries = useMemo(
     () => groupedEntries.filter((entry) => !workEntryIndicatesToolNeutralStatus(entry)),
     [groupedEntries],
@@ -1180,6 +1198,8 @@ const WorkGroupSection = memo(function WorkGroupSection({
             key={workEntry.id}
             workEntry={workEntry}
             workspaceRoot={workspaceRoot}
+            richToolCallRows={richToolCallRows}
+            resolvedTheme={resolvedTheme}
           />
         ))}
       </div>
@@ -1848,19 +1868,29 @@ function workEntryRawCommand(
 function buildToolCallExpandedBody(
   workEntry: TimelineWorkEntry,
   workspaceRoot: string | undefined,
+  options: {
+    /**
+     * Set when the row renders a {@link CommandInvocationBlock} above this body,
+     * which already shows the command and its output. Everything else — MCP
+     * payloads, changed paths — still belongs here.
+     */
+    readonly omitCommandAndOutput?: boolean;
+  } = {},
 ): string | null {
   const blocks: string[] = [];
   if (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) {
     blocks.push(`MCP call\n${JSON.stringify(workEntry.toolData, null, 2)}`);
   }
-  const raw = workEntryRawCommand(workEntry);
-  if (raw?.trim()) {
-    blocks.push(raw.trim());
-  } else if (workEntry.command?.trim()) {
-    blocks.push(workEntry.command.trim());
-  }
-  if (workEntry.detail?.trim()) {
-    blocks.push(workEntry.detail.trim());
+  if (!options.omitCommandAndOutput) {
+    const raw = workEntryRawCommand(workEntry);
+    if (raw?.trim()) {
+      blocks.push(raw.trim());
+    } else if (workEntry.command?.trim()) {
+      blocks.push(workEntry.command.trim());
+    }
+    if (workEntry.detail?.trim()) {
+      blocks.push(workEntry.detail.trim());
+    }
   }
   const changedFiles = workEntry.changedFiles ?? [];
   if (changedFiles.length > 0) {
@@ -1912,7 +1942,59 @@ function capitalizePhrase(value: string): string {
   return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;
 }
 
-function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
+/**
+ * Format a tool invocation target for display. Paths become bare
+ * workspace-relative (`src/foo.ts`); everything else is shown as reported.
+ */
+function formatInvocationTarget(
+  invocation: ToolInvocation,
+  workspaceRoot: string | undefined,
+): string | undefined {
+  if (invocation.target === undefined) return undefined;
+  return invocation.targetKind === "path"
+    ? formatWorkspaceRelativePath(invocation.target, workspaceRoot, { style: "bare" })
+    : invocation.target;
+}
+
+/** Icon for a named invocation, so `Read` does not inherit the edit pencil. */
+function invocationIconName(invocation: ToolInvocation): WorkEntryIconName | undefined {
+  switch (toolDisplayName(invocation.name)) {
+    case "Read":
+    case "Grep":
+    case "Glob":
+      return "eye";
+    case "Bash":
+      return "terminal";
+    case "Write":
+    case "Edit":
+    case "MultiEdit":
+    case "NotebookEdit":
+      return "square-pen";
+    case "Task":
+      return "hammer";
+    case "WebFetch":
+    case "WebSearch":
+      return "globe";
+    default:
+      return undefined;
+  }
+}
+
+function toolWorkEntryHeading(
+  workEntry: TimelineWorkEntry,
+  invocation: ToolInvocation | undefined,
+  workspaceRoot: string | undefined,
+): string {
+  if (invocation) {
+    const label = formatToolInvocationLabel({
+      name: invocation.name,
+      target: formatInvocationTarget(invocation, workspaceRoot),
+      ...(invocation.targetKind ? { targetKind: invocation.targetKind } : {}),
+    });
+    if (label.length > 0) {
+      return label;
+    }
+  }
   if (!workEntry.toolTitle) {
     return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
   }
@@ -1921,18 +2003,113 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
+const COMMAND_CODE_CLASS =
+  "min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/90 select-text";
+
+/**
+ * The command, highlighted as shell source by the same Shiki instance the diff
+ * and markdown renderers use, so a `Bash` row is themed like everything else.
+ *
+ * Suspends while the `bash` grammar loads; the caller renders the plain command
+ * as the fallback, which is what stays on screen if highlighting never resolves.
+ */
+function HighlightedCommand(props: { command: string; themeName: DiffThemeName }) {
+  const { command, themeName } = props;
+  const highlighter = use(getSyntaxHighlighterPromise("bash"));
+  const html = useMemo(() => {
+    try {
+      return highlighter.codeToHtml(command, { lang: "bash", theme: themeName });
+    } catch {
+      return null;
+    }
+  }, [command, highlighter, themeName]);
+
+  if (html === null) {
+    return <code className={COMMAND_CODE_CLASS}>{command}</code>;
+  }
+  return (
+    <div
+      className={cn(COMMAND_CODE_CLASS, "tool-command-shiki")}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
+/**
+ * Expanded body of a command tool call, shaped like a terminal transcript.
+ *
+ * A prompt line carries the command and its exit status; the captured output
+ * scrolls beneath it. Deliberately static — our users watch these rows all day
+ * and a repainting caret or spinner here would cost frames for nothing.
+ */
+function CommandInvocationBlock(props: { view: CommandInvocationView; themeName: DiffThemeName }) {
+  const { command, output, outputTruncated, exitCode, failed } = props.view;
+  return (
+    <div className="overflow-hidden rounded-md border border-border/50">
+      <div className="flex items-start gap-2 bg-muted/50 px-2.5 py-2">
+        <span
+          className="shrink-0 select-none font-mono text-[11px] leading-relaxed text-muted-foreground/50"
+          aria-hidden
+        >
+          $
+        </span>
+        <Suspense fallback={<code className={COMMAND_CODE_CLASS}>{command}</code>}>
+          <HighlightedCommand command={command} themeName={props.themeName} />
+        </Suspense>
+        {exitCode !== undefined ? (
+          <span
+            className={cn(
+              "shrink-0 select-none rounded-sm px-1 py-px font-mono text-[10px] leading-relaxed",
+              failed
+                ? "bg-destructive/12 text-destructive"
+                : "bg-foreground/6 text-muted-foreground/80",
+            )}
+          >
+            exit {exitCode}
+          </span>
+        ) : null}
+      </div>
+      {output ? (
+        <>
+          <pre className="max-h-64 cursor-text overflow-auto border-t border-border/40 px-2.5 py-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
+            {output}
+          </pre>
+          {outputTruncated ? (
+            <p className="border-t border-border/30 px-2.5 py-1 font-mono text-[10px] leading-relaxed text-muted-foreground/50">
+              Output truncated
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p className="border-t border-border/40 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground/45">
+          no output
+        </p>
+      )}
+    </div>
+  );
+}
+
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
+  richToolCallRows: boolean;
+  resolvedTheme: "light" | "dark";
 }) {
-  const { workEntry, workspaceRoot } = props;
+  const { workEntry, workspaceRoot, richToolCallRows, resolvedTheme } = props;
   const activity = use(TimelineRowActivityCtx);
   const [expanded, setExpanded] = useState(false);
+  // Single gate for the whole feature: with the setting off, `invocation` is
+  // undefined everywhere below and the row renders exactly as it did before
+  // `payload.tool` existed — the same path pre-`tool` activities still take.
+  const invocation = richToolCallRows ? workEntry.toolInvocation : undefined;
   const iconConfig = workToneIcon(workEntry.tone);
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";
-  const entryIconName = showWarningIndicator ? "x" : workEntryIconName(workEntry);
-  const heading = toolWorkEntryHeading(workEntry);
-  const rawPreview = workEntryPreview(workEntry, workspaceRoot);
+  const invocationIcon = invocation ? invocationIconName(invocation) : undefined;
+  const entryIconName = showWarningIndicator
+    ? "x"
+    : (invocationIcon ?? workEntryIconName(workEntry));
+  const heading = toolWorkEntryHeading(workEntry, invocation, workspaceRoot);
+  const rawPreview = invocation ? null : workEntryPreview(workEntry, workspaceRoot);
   const preview =
     rawPreview &&
     normalizeCompactToolLabel(rawPreview).toLowerCase() ===
@@ -1940,8 +2117,41 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
       ? null
       : rawPreview;
   const displayText = preview ? `${heading} - ${preview}` : heading;
-  const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot);
-  const canExpand = expandedBody !== null;
+  const commandView = useMemo(
+    () => (richToolCallRows ? buildCommandInvocationView(workEntry) : null),
+    [richToolCallRows, workEntry],
+  );
+  const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot, {
+    omitCommandAndOutput: commandView !== null,
+  });
+  const diffChanges = useMemo(
+    () => (invocation?.changes ?? []).filter((change) => change.diff !== undefined),
+    [invocation],
+  );
+  // Parsing and highlighting a patch pulls in shiki, so defer every bit of it
+  // until the row is actually open.
+  const renderedDiffs = useMemo(() => {
+    if (!expanded || diffChanges.length === 0) return [];
+    return diffChanges.flatMap((change) => {
+      const displayPath = formatWorkspaceRelativePath(change.path, workspaceRoot, {
+        style: "bare",
+      });
+      const patch = getRenderablePatch(
+        buildToolInvocationPatch(change, displayPath),
+        `tool-invocation:${workEntry.id}:${change.path}`,
+      );
+      // `null` (empty patch) and `kind: "raw"` (unparseable) both fall back to
+      // the plain text body rather than rendering a broken diff.
+      if (patch === null || patch.kind !== "files") {
+        return [];
+      }
+      return patch.files.map((fileDiff, index) => ({
+        key: `${change.path}:${index}`,
+        fileDiff,
+      }));
+    });
+  }, [expanded, diffChanges, workspaceRoot, workEntry.id]);
+  const canExpand = expandedBody !== null || commandView !== null || diffChanges.length > 0;
   const showFailedIndicator = workEntryIndicatesToolFailure(workEntry);
   const showDestructiveRowStyle =
     showFailedIndicator &&
@@ -2065,15 +2275,38 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           </div>
         </div>
       </div>
-      {expanded && canExpand && expandedBody ? (
+      {expanded && canExpand && (expandedBody || commandView || renderedDiffs.length > 0) ? (
         <div
           className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"
           onClick={stopRowToggle}
           onPointerDown={stopRowToggle}
         >
-          <pre className="max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
-            {expandedBody}
-          </pre>
+          {commandView ? (
+            <CommandInvocationBlock
+              view={commandView}
+              themeName={resolveDiffThemeName(resolvedTheme)}
+            />
+          ) : null}
+          {renderedDiffs.length > 0 ? (
+            <div className="diff-render-surface max-h-64 overflow-auto">
+              {renderedDiffs.map(({ key, fileDiff }) => (
+                <FileDiff
+                  key={key}
+                  fileDiff={fileDiff}
+                  options={{
+                    collapsed: false,
+                    diffStyle: "unified",
+                    theme: resolveDiffThemeName(resolvedTheme),
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+          {expandedBody ? (
+            <pre className="max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
+              {expandedBody}
+            </pre>
+          ) : null}
         </div>
       ) : null}
     </div>

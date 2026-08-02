@@ -61,6 +61,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "tool-call-rows",
+    title: "Detailed tool calls",
+    to: "/settings/appearance",
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",
