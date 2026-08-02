@@ -1269,6 +1269,58 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.exitCode).toBe(2);
   });
 
+  it("keeps subagent progress telemetry off a task.progress payload", () => {
+    // Payload shape taken verbatim from a real `task.progress` row.
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        id: "task-progress",
+        kind: "task.progress",
+        summary: "Running Check for orphaned code",
+        payload: {
+          taskId: "aed2650380da4ceaa",
+          title: "Running Check for orphaned code",
+          detail: "Running Check for orphaned code",
+          lastToolName: "Bash",
+          usage: { total_tokens: 80_339, tool_uses: 12, duration_ms: 139_792 },
+        },
+      }),
+    ]);
+    expect(entry?.taskMeta).toEqual({
+      lastToolName: "Bash",
+      toolUses: 12,
+      durationMs: 139_792,
+      totalTokens: 80_339,
+    });
+  });
+
+  it("drops zeroed task counters rather than rendering 0 tools", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        id: "task-fresh",
+        kind: "task.started",
+        summary: "Running setup",
+        payload: {
+          taskId: "t1",
+          detail: "Running setup",
+          usage: { total_tokens: 0, tool_uses: 0, duration_ms: 0 },
+        },
+      }),
+    ]);
+    expect(entry?.taskMeta).toBeUndefined();
+  });
+
+  it("leaves taskMeta unset for ordinary tool calls", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        id: "plain-tool",
+        kind: "tool.completed",
+        summary: "bash",
+        payload: { itemType: "command_execution", data: { item: { command: "ls" } } },
+      }),
+    ]);
+    expect(entry?.taskMeta).toBeUndefined();
+  });
+
   it("leaves exitCode unset for a non-command tool call", () => {
     const [entry] = deriveWorkLogEntries([
       makeActivity({

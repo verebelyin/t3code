@@ -54,6 +54,15 @@ export const PROVIDER_OPTIONS: Array<{
   },
 ];
 
+/** What a running subagent has done so far, as reported on `task.*` payloads. */
+export interface TaskProgressMeta {
+  /** Tool the subagent invoked most recently, e.g. `Bash`. */
+  readonly lastToolName?: string;
+  readonly toolUses?: number;
+  readonly durationMs?: number;
+  readonly totalTokens?: number;
+}
+
 export type WorkLogToolLifecycleStatus =
   | "inProgress"
   | "completed"
@@ -78,6 +87,16 @@ export interface WorkLogEntry {
    * re-parsing the output string at render time.
    */
   exitCode?: number;
+  /**
+   * Progress telemetry for a subagent task, when the provider reported it.
+   *
+   * A `task.progress` row otherwise says only "Running <step>", which reads as a
+   * stalled spinner on a task that may have been working for minutes. These
+   * fields already ride along on the activity — the projection leaves task
+   * payloads untouched because they carry no `data` — so surfacing them costs
+   * nothing on the wire.
+   */
+  taskMeta?: TaskProgressMeta;
   changedFiles?: ReadonlyArray<string>;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
@@ -746,6 +765,12 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       entry.exitCode = exitCode;
     }
   }
+  if (activity.kind.startsWith("task.")) {
+    const taskMeta = extractTaskMeta(payload);
+    if (taskMeta) {
+      entry.taskMeta = taskMeta;
+    }
+  }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
   }
@@ -906,6 +931,8 @@ function mergeDerivedWorkLogEntries(
   const command = next.command ?? previous.command;
   const rawCommand = next.rawCommand ?? previous.rawCommand;
   const exitCode = next.exitCode ?? previous.exitCode;
+  // Later pings report cumulative totals, so the newer side always wins whole.
+  const taskMeta = next.taskMeta ?? previous.taskMeta;
   const toolTitle = next.toolTitle ?? previous.toolTitle;
   const itemType = next.itemType ?? previous.itemType;
   const requestKind = next.requestKind ?? previous.requestKind;
@@ -922,6 +949,7 @@ function mergeDerivedWorkLogEntries(
     ...(rawCommand ? { rawCommand } : {}),
     // `0` is a real exit code, so this cannot be a truthiness check.
     ...(exitCode !== undefined ? { exitCode } : {}),
+    ...(taskMeta !== undefined ? { taskMeta } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
     ...(toolTitle ? { toolTitle } : {}),
     ...(itemType ? { itemType } : {}),
@@ -1206,6 +1234,40 @@ function extractToolCommand(payload: Record<string, unknown> | null): {
   return {
     command: null,
     rawCommand: null,
+  };
+}
+
+/**
+ * Read subagent progress telemetry off a `task.*` payload.
+ *
+ * Counts are only meaningful when positive — a fresh task reports zero tool uses
+ * and zero elapsed time, and rendering "0 tools · 0s" is noise, not information.
+ */
+function extractTaskMeta(payload: Record<string, unknown> | null): TaskProgressMeta | undefined {
+  const usage = asRecord(payload?.usage);
+  const positive = (value: unknown): number | undefined => {
+    const parsed = asNumber(value);
+    return parsed !== null && Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  };
+
+  const lastToolName = asTrimmedString(payload?.lastToolName) ?? undefined;
+  const toolUses = positive(usage?.tool_uses);
+  const durationMs = positive(usage?.duration_ms);
+  const totalTokens = positive(usage?.total_tokens);
+
+  if (
+    lastToolName === undefined &&
+    toolUses === undefined &&
+    durationMs === undefined &&
+    totalTokens === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    ...(lastToolName !== undefined ? { lastToolName } : {}),
+    ...(toolUses !== undefined ? { toolUses } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
   };
 }
 

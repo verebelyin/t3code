@@ -42,6 +42,7 @@ import {
   type DiffThemeName,
 } from "../../lib/diffRendering";
 import { getSyntaxHighlighterPromise } from "../../lib/syntaxHighlighting";
+import { formatTaskProgressMeta } from "../../taskProgressDisplay";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
@@ -2121,6 +2122,10 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     () => (richToolCallRows ? buildCommandInvocationView(workEntry) : null),
     [richToolCallRows, workEntry],
   );
+  const taskMetaParts = useMemo(
+    () => formatTaskProgressMeta(workEntry.taskMeta),
+    [workEntry.taskMeta],
+  );
   const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot, {
     omitCommandAndOutput: commandView !== null,
   });
@@ -2214,6 +2219,14 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               {preview && (
                 <span className="min-w-0 flex-1 truncate text-muted-foreground/55">{preview}</span>
               )}
+              {taskMetaParts && (
+                // `shrink-0` so the telemetry survives when the heading and
+                // preview truncate — it is the part that changes between pings,
+                // and a row that only ever reads "Running <step>" looks stalled.
+                <span className="ms-auto shrink-0 font-mono text-[10px] text-muted-foreground/45">
+                  {taskMetaParts.join(" · ")}
+                </span>
+              )}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-px text-muted-foreground/55">
@@ -2303,7 +2316,11 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
             </div>
           ) : null}
           {expandedBody ? (
-            <pre className="max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
+            // A subagent report runs to pages, so this scrolls rather than
+            // pushing the rest of the log off screen. `overscroll-contain` stops
+            // a scroll that reaches the end from continuing into the timeline
+            // behind it, which otherwise yanks the reader away mid-report.
+            <pre className="max-h-96 cursor-text overflow-auto overscroll-contain whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
               {expandedBody}
             </pre>
           ) : null}
