@@ -33,6 +33,16 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ClientSettings detailed tool call rows", () => {
+  it("defaults detailed tool call rows on", () => {
+    expect(decodeClientSettings({}).richToolCallRows).toBe(true);
+  });
+
+  it("round-trips an explicit opt-out", () => {
+    expect(decodeClientSettings({ richToolCallRows: false }).richToolCallRows).toBe(false);
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);

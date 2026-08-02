@@ -101,6 +101,11 @@ export const ClientSettingsSchema = Schema.Struct({
       modelOrder: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
     }),
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  // Render tool calls as `Read(src/foo.ts)` with inline diffs for edits instead
+  // of one generic row. Presentation only — the server always emits the
+  // underlying `payload.tool`, so toggling takes effect without a reconnect and
+  // turning it off falls back to the same path pre-`tool` activities take.
+  richToolCallRows: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
   ),
@@ -701,6 +706,7 @@ export const ClientSettingsPatch = Schema.Struct({
       }),
     ),
   ),
+  richToolCallRows: Schema.optionalKey(Schema.Boolean),
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(

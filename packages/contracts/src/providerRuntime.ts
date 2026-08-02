@@ -401,11 +401,72 @@ const TurnDiffUpdatedPayload = Schema.Struct({
 });
 export type TurnDiffUpdatedPayload = typeof TurnDiffUpdatedPayload.Type;
 
+export const ToolInvocationTargetKind = Schema.Literals([
+  "path",
+  "pattern",
+  "command",
+  "agent",
+  "url",
+  "text",
+]);
+export type ToolInvocationTargetKind = typeof ToolInvocationTargetKind.Type;
+
+export const ToolInvocationChangeKind = Schema.Literals(["add", "update", "delete"]);
+export type ToolInvocationChangeKind = typeof ToolInvocationChangeKind.Type;
+
+export const ToolInvocationChange = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  kind: Schema.optional(ToolInvocationChangeKind),
+  /**
+   * Unified hunk body only — `@@` headers plus `-`/`+`/context lines, with no
+   * `diff --git`/`---`/`+++` file headers. Clients re-add those when handing the
+   * text to a patch parser, which lets Claude (which emits no diff at all, so we
+   * synthesize one) and Codex (which emits a full patch we strip) converge on one
+   * shape. Capped by the emitting adapter; see `diffTruncated`.
+   */
+  diff: Schema.optional(Schema.String),
+  diffTruncated: Schema.optional(Schema.Boolean),
+});
+export type ToolInvocationChange = typeof ToolInvocationChange.Type;
+
+/**
+ * Provider-agnostic description of a tool call, for rendering it as
+ * `Read(src/foo.ts)` rather than a generic row.
+ *
+ * Deliberately a sibling of `data` rather than a field inside it: the WS
+ * projection (`ActivityPayloadProjection.projectActivityPayload`) rewrites only
+ * `payload.data` and spreads the rest of `payload` through untouched, so a
+ * top-level field reaches clients with no allowlist change.
+ */
+export const ToolInvocation = Schema.Struct({
+  /** Provider-native tool name, e.g. `Read`, `Edit`, `Bash`, `Task`. */
+  name: TrimmedNonEmptyStringSchema,
+  /** The value rendered in parentheses: a path, pattern, command, agent, or URL. */
+  target: Schema.optional(TrimmedNonEmptyStringSchema),
+  targetKind: Schema.optional(ToolInvocationTargetKind),
+  changes: Schema.optional(Schema.Array(ToolInvocationChange)),
+  /**
+   * Captured stdout/stderr of a command tool call.
+   *
+   * Shipped because it is otherwise unreachable from the client: the activity
+   * projection rebuilds `payload.data` from an allowlist and reduces raw output
+   * to a one-line summary, so a row had no way to show what a command actually
+   * printed. Capped hard by the emitting adapter for the same reason the
+   * projection trims — see `outputTruncated`.
+   */
+  output: Schema.optional(Schema.String),
+  outputTruncated: Schema.optional(Schema.Boolean),
+  /** Exit status, for providers that report one. Absent is "unknown", not zero. */
+  exitCode: Schema.optional(Schema.Int),
+});
+export type ToolInvocation = typeof ToolInvocation.Type;
+
 export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
   title: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
+  tool: Schema.optional(ToolInvocation),
   data: Schema.optional(Schema.Unknown),
 });
 export type ItemLifecyclePayload = typeof ItemLifecyclePayload.Type;
