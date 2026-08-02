@@ -1469,6 +1469,19 @@ label:has(> select#reasoning-effort) select {
   background: transparent !important;
 }
 
+/* Shiki inside a tool-call command line. Unlike a markdown fence, this sits
+   inline in a flex row that already owns the font, padding, and wrapping — so
+   strip the block chrome Shiki brings and let the container keep deciding. */
+.tool-command-shiki .shiki,
+.tool-command-shiki .shiki code {
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Diagnostics-style tables: row separators only, uppercase headers, and a
    scroll-fade container for horizontal overflow. The root chat-markdown
    wrapping rules (overflow-wrap: anywhere) would let columns shrink to single
