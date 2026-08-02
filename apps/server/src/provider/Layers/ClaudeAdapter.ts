@@ -43,6 +43,7 @@ import {
   RuntimeRequestId,
   RuntimeTaskId,
   ThreadId,
+  type ToolInvocation,
   TurnId,
   type UserInputQuestion,
 } from "@t3tools/contracts";
@@ -70,6 +71,7 @@ import * as Stream from "effect/Stream";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { buildClaudeToolInvocation } from "./claudeToolInvocation.ts";
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import {
@@ -635,6 +637,30 @@ function classifyToolItemType(toolName: string): CanonicalItemType {
     return "image_view";
   }
   return "dynamic_tool_call";
+}
+
+/**
+ * Build the `tool` payload field for an in-flight tool call, ready to spread
+ * into an `ItemLifecyclePayload`.
+ *
+ * Returns `{}` rather than `undefined` so call sites can spread unconditionally.
+ * Diffs are attached only on terminal events — the streaming `item.updated`
+ * fires on every input-fingerprint change, and re-shipping a long `new_string`
+ * on each parse would flood the socket.
+ *
+ * The terminal call sites also pass `result`: `tool_use_result` is what carries
+ * the `structuredPatch` with real file line numbers, so a diff built without it
+ * can only number its gutter from the changed region.
+ */
+function toolInvocationFor(
+  tool: ToolInFlight,
+  options: {
+    readonly includeDiffs: boolean;
+    readonly result?: Record<string, unknown> | undefined;
+  },
+): { tool: ToolInvocation } | undefined {
+  const invocation = buildClaudeToolInvocation(tool.toolName, tool.input, options);
+  return invocation ? { tool: invocation } : undefined;
 }
 
 function isReadOnlyToolName(toolName: string): boolean {
@@ -2205,6 +2231,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             status: "inProgress",
             title: nextTool.title,
             ...(nextTool.detail ? { detail: nextTool.detail } : {}),
+            // Streaming update: name and target only. This fires on every input
+            // fingerprint change, so diffs would be re-sent on each parse.
+            ...toolInvocationFor(nextTool, { includeDiffs: false }),
             data: {
               toolName: nextTool.toolName,
               input: nextTool.input,
@@ -2300,6 +2329,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: "inProgress",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
+          ...toolInvocationFor(tool, { includeDiffs: false }),
           data: {
             toolName: tool.toolName,
             input: toolInput,
@@ -2378,6 +2408,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: toolResult.isError ? "failed" : "inProgress",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
+          // Terminal for input purposes: the tool has run, so the input is final
+          // and diffs are safe to attach exactly once.
+          ...toolInvocationFor(tool, { includeDiffs: true, result: toolUseResult }),
           data: toolData,
         },
         providerRefs: nativeProviderRefs(context, {
@@ -2430,6 +2463,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: itemStatus,
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
+          ...toolInvocationFor(tool, { includeDiffs: true, result: toolUseResult }),
           data: toolData,
         },
         providerRefs: nativeProviderRefs(context, {
