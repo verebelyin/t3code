@@ -22,6 +22,7 @@ const clientSettings: ClientSettings = {
   favorites: [],
   glassOpacity: 80,
   providerModelPreferences: {},
+  richToolCallRows: true,
   sidebarAutoSettleAfterDays: 3,
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {
