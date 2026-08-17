@@ -98,10 +98,6 @@ export interface WorkLogEntry {
    * nothing on the wire.
    */
   taskMeta?: TaskProgressMeta;
-  /** Provider id of this item, used to match children to their parent row. */
-  providerItemId?: string;
-  /** Set when a subagent produced this row; points at the spawning agent item. */
-  parentToolCallId?: string;
   changedFiles?: ReadonlyArray<string>;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
@@ -903,14 +899,6 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       entry.taskMeta = taskMeta;
     }
   }
-  const providerItemId = asTrimmedString(payload?.providerItemId);
-  if (providerItemId) {
-    entry.providerItemId = providerItemId;
-  }
-  const parentToolCallId = asTrimmedString(payload?.parentToolCallId);
-  if (parentToolCallId) {
-    entry.parentToolCallId = parentToolCallId;
-  }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
   }
@@ -1170,8 +1158,6 @@ function mergeDerivedWorkLogEntries(
   const exitCode = next.exitCode ?? previous.exitCode;
   // Later pings report cumulative totals, so the newer side always wins whole.
   const taskMeta = next.taskMeta ?? previous.taskMeta;
-  const providerItemId = next.providerItemId ?? previous.providerItemId;
-  const parentToolCallId = next.parentToolCallId ?? previous.parentToolCallId;
   const toolTitle = next.toolTitle ?? previous.toolTitle;
   const itemType = next.itemType ?? previous.itemType;
   const requestKind = next.requestKind ?? previous.requestKind;
@@ -1189,8 +1175,6 @@ function mergeDerivedWorkLogEntries(
     // `0` is a real exit code, so this cannot be a truthiness check.
     ...(exitCode !== undefined ? { exitCode } : {}),
     ...(taskMeta !== undefined ? { taskMeta } : {}),
-    ...(providerItemId !== undefined ? { providerItemId } : {}),
-    ...(parentToolCallId !== undefined ? { parentToolCallId } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
     ...(toolTitle ? { toolTitle } : {}),
     ...(itemType ? { itemType } : {}),

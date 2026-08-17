@@ -31,7 +31,9 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
+import { flushSync } from "react-dom";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { FileDiff } from "@pierre/diffs/react";
 import {
@@ -50,7 +52,6 @@ import {
 } from "../../lib/diffRendering";
 import { getSyntaxHighlighterPromise } from "../../lib/syntaxHighlighting";
 import { formatTaskProgressMeta } from "../../taskProgressDisplay";
-import { groupSubagentEntries } from "../../subagentGrouping";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
@@ -61,6 +62,7 @@ import {
   EyeIcon,
   GlobeIcon,
   HammerIcon,
+  LoaderCircleIcon,
   MessageCircleIcon,
   MousePointerClickIcon,
   PaintbrushIcon,
@@ -73,6 +75,7 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
+import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesCard } from "./ChangedFilesTree";
@@ -90,6 +93,7 @@ import {
   resolveTimelineMinimapIndexFromPointer,
   resolveTimelineMinimapInteractiveWidth,
   resolveTimelineMinimapTopPercent,
+  toolCallPanelKind,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
   TIMELINE_MINIMAP_MIN_ITEMS,
@@ -148,13 +152,16 @@ interface TimelineRowSharedState {
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
   richToolCallRows: boolean;
+  expandedToolCalls: boolean;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
-  onToggleTurnFold: (turnId: TurnId) => void;
-  onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
+  onToggleTurnFold: (turnId: TurnId, anchorElement?: HTMLElement) => void;
+  onToggleWorkGroup: (groupId: string, anchorElement?: HTMLElement) => void;
+  /** Row ids revealed by the most recent fold/group toggle; they mount with a short reveal animation. */
+  revealedRowIdsRef: RefObject<ReadonlySet<string>>;
   agentPanelModel: AgentPanelModel;
   onOpenAgents: () => void;
 }
@@ -209,6 +216,18 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
     layout: true,
   },
 } as const;
+/**
+ * LegendList only re-pins to the end while the viewport sits within this many
+ * viewport-lengths of it. The default (0.1) assumes distance-from-end implies
+ * the user scrolled away — but here user navigation disarms follow explicitly
+ * (wheel/touch/pointer/keyboard → `liveFollowEnabled` false), so while
+ * maintainScrollAtEnd is on at all, distance can only come from content
+ * growth. An auto-opened tool panel measuring in (est. 90px row → 600+px)
+ * jumps past the default band in one frame and end-follow silently dies,
+ * leaving the thread stuck at the panel. Two viewports covers the largest
+ * single-frame growth (capped diff panel + command block) with margin.
+ */
+const TIMELINE_MAINTAIN_SCROLL_AT_END_THRESHOLD = 2;
 
 // ---------------------------------------------------------------------------
 // Props (public API)
@@ -238,6 +257,7 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   richToolCallRows: boolean;
+  expandedToolCalls: boolean;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   anchorMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
@@ -285,6 +305,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   richToolCallRows,
+  expandedToolCalls,
   skills = EMPTY_TIMELINE_SKILLS,
   anchorMessageId,
   onAnchorReady,
@@ -298,85 +319,109 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
-  const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
   const [minimapStripMap] = useState(() => new Map<string, HTMLSpanElement>());
-  const disclosureAnchorKeyRef = useRef<string | null>(null);
-  const disclosureSettleFrameRef = useRef<number | null>(null);
-  const disclosureSettleSecondFrameRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (disclosureSettleFrameRef.current !== null) {
-        cancelAnimationFrame(disclosureSettleFrameRef.current);
+  // Rows as of the latest render, for the toggle callbacks below: they diff row
+  // ids across a flushSync toggle to find what a fold/group expansion revealed.
+  const rowsRef = useRef<MessagesTimelineRow[]>([]);
+  const revealedRowIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const revealClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markRevealedRows = useCallback((previousRowIds: ReadonlySet<string>) => {
+    const revealed = new Set<string>();
+    for (const row of rowsRef.current) {
+      if (!previousRowIds.has(row.id)) {
+        revealed.add(row.id);
       }
-      if (disclosureSettleSecondFrameRef.current !== null) {
-        cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
-      }
-    };
-  }, []);
-
-  const suspendEndScrollMaintenanceForDisclosure = useCallback((anchorKey: string) => {
-    disclosureAnchorKeyRef.current = anchorKey;
-    setDisclosureToggleSettling(true);
-    if (disclosureSettleFrameRef.current !== null) {
-      cancelAnimationFrame(disclosureSettleFrameRef.current);
     }
-    if (disclosureSettleSecondFrameRef.current !== null) {
-      cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
+    revealedRowIdsRef.current = revealed;
+    // Cleared shortly after so a later virtualization remount replays nothing.
+    if (revealClearTimerRef.current !== null) {
+      clearTimeout(revealClearTimerRef.current);
     }
-    disclosureSettleFrameRef.current = requestAnimationFrame(() => {
-      disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
-        disclosureAnchorKeyRef.current = null;
-        setDisclosureToggleSettling(false);
-        disclosureSettleFrameRef.current = null;
-        disclosureSettleSecondFrameRef.current = null;
-      });
-    });
+    revealClearTimerRef.current = setTimeout(() => {
+      revealedRowIdsRef.current = new Set();
+      revealClearTimerRef.current = null;
+    }, 600);
   }, []);
-
-  const shouldRestoreVisibleContentPosition = useCallback((row: MessagesTimelineRow) => {
-    const disclosureAnchorKey = disclosureAnchorKeyRef.current;
-    return disclosureAnchorKey === null || row.id === disclosureAnchorKey;
-  }, []);
-
-  const maintainVisibleContentPosition = useMemo(
-    () => ({
-      data: true,
-      size: true,
-      shouldRestorePosition: shouldRestoreVisibleContentPosition,
-    }),
-    [shouldRestoreVisibleContentPosition],
-  );
 
   const onToggleTurnFold = useCallback(
-    (turnId: TurnId) => {
-      suspendEndScrollMaintenanceForDisclosure(`turn-fold:${turnId}`);
-      setExpandedTurnIds((existing) => {
-        const next = new Set(existing);
-        if (next.has(turnId)) {
-          next.delete(turnId);
-        } else {
-          next.add(turnId);
-        }
-        return next;
+    (turnId: TurnId, anchorElement?: HTMLElement) => {
+      const anchorBottomBeforeToggle = anchorElement?.getBoundingClientRect().bottom ?? null;
+      const previousRowIds = new Set(rowsRef.current.map((row) => row.id));
+
+      flushSync(() => {
+        setExpandedTurnIds((existing) => {
+          const next = new Set(existing);
+          if (next.has(turnId)) {
+            next.delete(turnId);
+          } else {
+            next.add(turnId);
+          }
+          return next;
+        });
       });
+      markRevealedRows(previousRowIds);
+
+      if (anchorBottomBeforeToggle === null || !anchorElement) {
+        return;
+      }
+
+      // Keep the clicked fold row visually stationary: correct synchronously,
+      // then once more next frame because the list's maintain-at-end reaction
+      // to the inserted rows lands after this handler.
+      const keepAnchorStationary = () => {
+        if (!anchorElement.isConnected) {
+          return;
+        }
+        const delta = anchorElement.getBoundingClientRect().bottom - anchorBottomBeforeToggle;
+        if (Math.abs(delta) < 0.5) {
+          return;
+        }
+        const list = listRef.current;
+        const currentScroll = list?.getState?.().scroll;
+        if (list && typeof currentScroll === "number") {
+          list.scrollToOffset({ offset: currentScroll + delta, animated: false });
+        }
+      };
+      keepAnchorStationary();
+      requestAnimationFrame(keepAnchorStationary);
     },
-    [suspendEndScrollMaintenanceForDisclosure],
+    [listRef, markRevealedRows],
   );
   const onToggleWorkGroup = useCallback(
-    (groupId: string, anchorKey: string) => {
-      suspendEndScrollMaintenanceForDisclosure(anchorKey);
-      setExpandedWorkGroupIds((existing) => {
-        const next = new Set(existing);
-        if (next.has(groupId)) {
-          next.delete(groupId);
-        } else {
-          next.add(groupId);
-        }
-        return next;
+    (groupId: string, anchorElement?: HTMLElement) => {
+      const anchorBottomBeforeToggle = anchorElement?.getBoundingClientRect().bottom ?? null;
+      const previousRowIds = new Set(rowsRef.current.map((row) => row.id));
+
+      flushSync(() => {
+        setExpandedWorkGroupIds((existing) => {
+          const next = new Set(existing);
+          if (next.has(groupId)) {
+            next.delete(groupId);
+          } else {
+            next.add(groupId);
+          }
+          return next;
+        });
       });
+      markRevealedRows(previousRowIds);
+
+      if (anchorBottomBeforeToggle === null || !anchorElement) {
+        return;
+      }
+
+      const delta = anchorElement.getBoundingClientRect().bottom - anchorBottomBeforeToggle;
+      if (Math.abs(delta) < 0.5) {
+        return;
+      }
+
+      const list = listRef.current;
+      const currentScroll = list?.getState?.().scroll;
+      if (list && typeof currentScroll === "number") {
+        list.scrollToOffset({ offset: currentScroll + delta, animated: false });
+      }
     },
-    [suspendEndScrollMaintenanceForDisclosure],
+    [listRef, markRevealedRows],
   );
 
   // An in-session interrupt leaves its turn expanded so the user keeps their
@@ -416,6 +461,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         runningTurnId,
         expandedTurnIds,
         expandedWorkGroupIds,
+        expandAllToolCalls: expandedToolCalls,
         isWorking,
         activeTurnStartedAt,
         turnDiffSummaryByAssistantMessageId,
@@ -427,6 +473,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       runningTurnId,
       expandedTurnIds,
       expandedWorkGroupIds,
+      expandedToolCalls,
       isWorking,
       activeTurnStartedAt,
       turnDiffSummaryByAssistantMessageId,
@@ -434,6 +481,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ],
   );
   const rows = useStableRows(rawRows);
+  rowsRef.current = rows;
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
   const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
     null,
@@ -524,6 +572,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       resolvedTheme,
       workspaceRoot,
       richToolCallRows,
+      expandedToolCalls,
       skills,
       activeThreadEnvironmentId,
       onRevertUserMessage,
@@ -531,6 +580,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
+      revealedRowIdsRef,
       agentPanelModel,
       onOpenAgents,
     }),
@@ -541,6 +591,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       resolvedTheme,
       workspaceRoot,
       richToolCallRows,
+      expandedToolCalls,
       skills,
       activeThreadEnvironmentId,
       onRevertUserMessage,
@@ -600,11 +651,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
             contentInsetEndAdjustment={contentInsetEndAdjustment}
             maintainScrollAtEnd={
-              anchoredEndSpace || !liveFollowEnabled || disclosureToggleSettling
-                ? false
-                : TIMELINE_MAINTAIN_SCROLL_AT_END
+              anchoredEndSpace || !liveFollowEnabled ? false : TIMELINE_MAINTAIN_SCROLL_AT_END
             }
-            maintainVisibleContentPosition={maintainVisibleContentPosition}
+            maintainScrollAtEndThreshold={TIMELINE_MAINTAIN_SCROLL_AT_END_THRESHOLD}
+            maintainVisibleContentPosition={{
+              data: true,
+              size: false,
+            }}
             onScroll={handleScroll}
             className={cn(
               "scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5",
@@ -943,6 +996,10 @@ type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["grouped
 type TimelineRow = MessagesTimelineRow;
 
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
+  const { revealedRowIdsRef } = use(TimelineRowCtx);
+  // Read once at mount-time render: rows revealed by a fold/group toggle fade
+  // in; the one-shot CSS animation never replays, so the class can stay.
+  const revealed = revealedRowIdsRef.current.has(row.id);
   return (
     <div
       className={cn(
@@ -955,6 +1012,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           ? "pb-2"
           : "pb-4",
         row.kind === "message" && row.message.role === "assistant" ? "group/assistant" : null,
+        revealed && "animate-timeline-row-reveal",
       )}
       data-timeline-row-id={row.id}
       data-timeline-row-kind={row.kind}
@@ -1114,7 +1172,12 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
         type="button"
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
-        onClick={() => ctx.onToggleTurnFold(row.turnId)}
+        onClick={(event) => {
+          const anchorElement =
+            event.currentTarget.closest<HTMLElement>("[data-timeline-row-id]") ??
+            event.currentTarget;
+          ctx.onToggleTurnFold(row.turnId, anchorElement);
+        }}
         className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-xs text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
         <span>{row.label}</span>
@@ -1369,12 +1432,16 @@ const WorkGroupSection = memo(function WorkGroupSection({
   // Read context here and pass down as props: `SimpleWorkEntryRow` is memoized
   // and there is one per tool call, so a `use(TimelineRowCtx)` inside it would
   // re-render every row whenever any unrelated context field changes.
-  const { workspaceRoot, richToolCallRows, resolvedTheme } = use(TimelineRowCtx);
+  const { workspaceRoot, richToolCallRows, expandedToolCalls, resolvedTheme } = use(TimelineRowCtx);
   const nonEmptyEntries = useMemo(
-    () => groupedEntries.filter((entry) => !workEntryIndicatesToolNeutralStatus(entry)),
-    [groupedEntries],
+    // Expanded mode keeps neutral entries: a running call is "neutral" until it
+    // resolves, and this mode exists to show it while it runs.
+    () =>
+      expandedToolCalls
+        ? groupedEntries
+        : groupedEntries.filter((entry) => !workEntryIndicatesToolNeutralStatus(entry)),
+    [groupedEntries, expandedToolCalls],
   );
-  const subagentGroups = useMemo(() => groupSubagentEntries(nonEmptyEntries), [nonEmptyEntries]);
   const onlyToolEntries = nonEmptyEntries.every((entry) => workLogEntryIsToolLike(entry));
   const groupLabel = onlyToolEntries
     ? nonEmptyEntries.length === 1
@@ -1390,26 +1457,16 @@ const WorkGroupSection = memo(function WorkGroupSection({
         <p className="px-0.5 pb-0.5 font-medium text-secondary-label text-[11px]">{groupLabel}</p>
       )}
       <div className="space-y-px">
-        {subagentGroups.map(({ entry, children }) =>
-          children.length > 0 ? (
-            <SubagentWorkEntryGroup
-              key={entry.id}
-              entry={entry}
-              childEntries={children}
-              workspaceRoot={workspaceRoot}
-              richToolCallRows={richToolCallRows}
-              resolvedTheme={resolvedTheme}
-            />
-          ) : (
-            <SimpleWorkEntryRow
-              key={entry.id}
-              workEntry={entry}
-              workspaceRoot={workspaceRoot}
-              richToolCallRows={richToolCallRows}
-              resolvedTheme={resolvedTheme}
-            />
-          ),
-        )}
+        {nonEmptyEntries.map((entry) => (
+          <SimpleWorkEntryRow
+            key={entry.id}
+            workEntry={entry}
+            workspaceRoot={workspaceRoot}
+            richToolCallRows={richToolCallRows}
+            autoExpandActiveToolCall={expandedToolCalls}
+            resolvedTheme={resolvedTheme}
+          />
+        ))}
       </div>
     </section>
   );
@@ -1434,7 +1491,11 @@ function WorkGroupToggleTimelineRow({
       type="button"
       className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-[12px] leading-5 transition-colors duration-150 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      onClick={(event) => {
+        const anchorElement =
+          event.currentTarget.closest<HTMLElement>("[data-timeline-row-id]") ?? event.currentTarget;
+        ctx.onToggleWorkGroup(row.groupId, anchorElement);
+      }}
     >
       <span className="flex size-5 shrink-0 items-center justify-center text-icon-muted">
         <ChevronDownIcon
@@ -2213,65 +2274,6 @@ function toolWorkEntryHeading(
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
-/**
- * An agent row plus the tool calls its subagent made.
- *
- * Children start collapsed. A subagent commonly runs fifteen or more tools, and
- * expanding them by default would bury the main thread's work in someone else's
- * — the count on the toggle is what tells you there is something to open.
- */
-const SubagentWorkEntryGroup = memo(function SubagentWorkEntryGroup(props: {
-  entry: TimelineWorkEntry;
-  childEntries: ReadonlyArray<TimelineWorkEntry>;
-  workspaceRoot: string | undefined;
-  richToolCallRows: boolean;
-  resolvedTheme: "light" | "dark";
-}) {
-  const { entry, childEntries, workspaceRoot, richToolCallRows, resolvedTheme } = props;
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="space-y-px">
-      <SimpleWorkEntryRow
-        workEntry={entry}
-        workspaceRoot={workspaceRoot}
-        richToolCallRows={richToolCallRows}
-        resolvedTheme={resolvedTheme}
-      />
-      <button
-        type="button"
-        className="ms-7 flex items-center gap-1 rounded-sm px-0.5 py-px text-[11px] text-muted-foreground/55 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <ChevronRightIcon
-          className={cn(
-            "size-3 shrink-0 transition-transform duration-200",
-            expanded && "rotate-90",
-          )}
-          aria-hidden
-        />
-        {childEntries.length === 1 ? "1 subagent step" : `${childEntries.length} subagent steps`}
-      </button>
-      {expanded ? (
-        // Indented and rail-marked so a nested call is never mistaken for the
-        // main agent's own work.
-        <div className="ms-7 space-y-px border-s border-border/45 ps-2">
-          {childEntries.map((child) => (
-            <SimpleWorkEntryRow
-              key={child.id}
-              workEntry={child}
-              workspaceRoot={workspaceRoot}
-              richToolCallRows={richToolCallRows}
-              resolvedTheme={resolvedTheme}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-});
-
 const COMMAND_CODE_CLASS =
   "min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/90 select-text";
 
@@ -2452,13 +2454,22 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
   );
 });
 
+/**
+ * How long a just-settled auto-opened body stays up so its output registers
+ * before closing. Applies to command and misc tool rows (success and failure
+ * alike); file-change rows never auto-close — see `toolCallPanelKind`.
+ */
+const AUTO_COLLAPSE_AFTER_SETTLE_MS = 5000;
+
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
   richToolCallRows: boolean;
+  autoExpandActiveToolCall: boolean;
   resolvedTheme: "light" | "dark";
 }) {
-  const { workEntry, workspaceRoot, richToolCallRows, resolvedTheme } = props;
+  const { workEntry, workspaceRoot, richToolCallRows, autoExpandActiveToolCall, resolvedTheme } =
+    props;
   // Before any hooks: spawn CTA rows render their own component.
   if (workEntry.agentSpawn) {
     return <AgentSpawnCtaRow workEntry={workEntry} />;
@@ -2468,6 +2479,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
       workEntry={workEntry}
       workspaceRoot={workspaceRoot}
       richToolCallRows={richToolCallRows}
+      autoExpandActiveToolCall={autoExpandActiveToolCall}
       resolvedTheme={resolvedTheme}
     />
   );
@@ -2477,11 +2489,72 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
   richToolCallRows: boolean;
+  autoExpandActiveToolCall: boolean;
   resolvedTheme: "light" | "dark";
 }) {
-  const { workEntry, workspaceRoot, richToolCallRows, resolvedTheme } = props;
+  const { workEntry, workspaceRoot, richToolCallRows, autoExpandActiveToolCall, resolvedTheme } =
+    props;
   const activity = use(TimelineRowActivityCtx);
-  const [expanded, setExpanded] = useState(false);
+  // Auto mode opens the running call's body once it has output to show and
+  // closes it shortly after the call settles; a manual toggle wins for the rest
+  // of the row's life. File-change rows instead stay open permanently (old
+  // threads included) so a scroll-back always shows what files were touched.
+  const isRunning = activity.activeTurnInProgress && workEntry.toolLifecycleStatus === "inProgress";
+  const autoExpand = autoExpandActiveToolCall && workLogEntryIsToolLike(workEntry);
+  const panelKind = toolCallPanelKind(workEntry);
+  const alwaysOpen = autoExpand && panelKind === "file";
+  const commandView = useMemo(
+    () => (richToolCallRows ? buildCommandInvocationView(workEntry) : null),
+    [richToolCallRows, workEntry],
+  );
+  const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot, {
+    omitCommandAndOutput: commandView !== null,
+  });
+  // A command row's body is worth auto-opening only when output has actually
+  // been captured — opening onto the "no output" placeholder reveals nothing.
+  // Non-command bodies are static (command echo, changed paths), so the body's
+  // presence is the signal.
+  const hasAutoOpenContent =
+    commandView !== null ? commandView.output !== null : expandedBody !== null;
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
+  const [autoOpen, setAutoOpen] = useState(autoExpand && isRunning && hasAutoOpenContent);
+  const wasRunningRef = useRef(isRunning);
+  useEffect(() => {
+    if (!autoExpand || alwaysOpen) {
+      return;
+    }
+    if (isRunning) {
+      wasRunningRef.current = true;
+      if (hasAutoOpenContent) {
+        setAutoOpen(true);
+      }
+      return;
+    }
+    if (!wasRunningRef.current) {
+      return;
+    }
+    if (!hasAutoOpenContent) {
+      // Settled with nothing to show yet. Keep the ref armed: adapters can
+      // ship the captured output a beat after the lifecycle flip, and that
+      // late arrival should still get the settle reveal below.
+      return;
+    }
+    wasRunningRef.current = false;
+    // Output that only arrives at settle still gets its five seconds on
+    // screen before the row closes.
+    setAutoOpen(true);
+    const timer = setTimeout(() => setAutoOpen(false), AUTO_COLLAPSE_AFTER_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [autoExpand, alwaysOpen, isRunning, hasAutoOpenContent]);
+  const expanded = userExpanded ?? (alwaysOpen || autoOpen);
+  // Latches on first open so the body keeps its content while the close
+  // animation runs instead of emptying the instant `expanded` flips.
+  const [hasOpened, setHasOpened] = useState(expanded);
+  useEffect(() => {
+    if (expanded) {
+      setHasOpened(true);
+    }
+  }, [expanded]);
   // Single gate for the whole feature: with the setting off, `invocation` is
   // undefined everywhere below and the row renders exactly as it did before
   // `payload.tool` existed — the same path pre-`tool` activities still take.
@@ -2501,25 +2574,18 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       ? null
       : rawPreview;
   const displayText = preview ? `${heading} - ${preview}` : heading;
-  const commandView = useMemo(
-    () => (richToolCallRows ? buildCommandInvocationView(workEntry) : null),
-    [richToolCallRows, workEntry],
-  );
   const taskMetaParts = useMemo(
     () => formatTaskProgressMeta(workEntry.taskMeta),
     [workEntry.taskMeta],
   );
-  const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot, {
-    omitCommandAndOutput: commandView !== null,
-  });
   const diffChanges = useMemo(
     () => (invocation?.changes ?? []).filter((change) => change.diff !== undefined),
     [invocation],
   );
   // Parsing and highlighting a patch pulls in shiki, so defer every bit of it
-  // until the row is actually open.
+  // until the row has actually been opened once.
   const renderedDiffs = useMemo(() => {
-    if (!expanded || diffChanges.length === 0) return [];
+    if (!hasOpened || diffChanges.length === 0) return [];
     return diffChanges.flatMap((change) => {
       const displayPath = formatWorkspaceRelativePath(change.path, workspaceRoot, {
         style: "bare",
@@ -2538,7 +2604,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         fileDiff,
       }));
     });
-  }, [expanded, diffChanges, workspaceRoot, workEntry.id]);
+  }, [hasOpened, diffChanges, workspaceRoot, workEntry.id]);
   const canExpand = expandedBody !== null || commandView !== null || diffChanges.length > 0;
   const showFailedIndicator = workEntryIndicatesToolFailure(workEntry);
   const showDestructiveRowStyle =
@@ -2569,11 +2635,11 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         role: "button" as const,
         tabIndex: 0 as const,
         "aria-label": displayText,
-        onClick: () => setExpanded((v) => !v),
+        onClick: () => setUserExpanded(!expanded),
         onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setExpanded((v) => !v);
+            setUserExpanded(!expanded);
           }
         },
       }
@@ -2628,7 +2694,19 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
               ) : null}
             </span>
             <span className="flex size-4 shrink-0 items-center justify-center">
-              {showFailedIndicator ? (
+              {isRunning ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<span className="flex size-4 items-center justify-center" />}
+                  >
+                    <LoaderCircleIcon
+                      className="block size-3 shrink-0 animate-spin text-muted-foreground/70"
+                      aria-hidden
+                    />
+                  </TooltipTrigger>
+                  <TooltipPopup>Running</TooltipPopup>
+                </Tooltip>
+              ) : showFailedIndicator ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -2671,43 +2749,49 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           </div>
         </div>
       </div>
-      {expanded && canExpand && (expandedBody || commandView || renderedDiffs.length > 0) ? (
-        <div
-          className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"
-          onClick={stopRowToggle}
-          onPointerDown={stopRowToggle}
-        >
-          {commandView ? (
-            <CommandInvocationBlock
-              view={commandView}
-              themeName={resolveDiffThemeName(resolvedTheme)}
-            />
-          ) : null}
-          {renderedDiffs.length > 0 ? (
-            <div className="diff-render-surface max-h-64 overflow-auto">
-              {renderedDiffs.map(({ key, fileDiff }) => (
-                <FileDiff
-                  key={key}
-                  fileDiff={fileDiff}
-                  options={{
-                    collapsed: false,
-                    diffStyle: "unified",
-                    theme: resolveDiffThemeName(resolvedTheme),
-                  }}
+      {canExpand ? (
+        <Collapsible open={expanded}>
+          <CollapsiblePanel>
+            <div
+              className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"
+              onClick={stopRowToggle}
+              onPointerDown={stopRowToggle}
+            >
+              {commandView ? (
+                <CommandInvocationBlock
+                  view={commandView}
+                  themeName={resolveDiffThemeName(resolvedTheme)}
                 />
-              ))}
+              ) : null}
+              {renderedDiffs.length > 0 ? (
+                // ~30 lines of the 11px/1.625 body font, then scrolls.
+                <div className="diff-render-surface max-h-[536px] overflow-auto overscroll-contain">
+                  {renderedDiffs.map(({ key, fileDiff }) => (
+                    <FileDiff
+                      key={key}
+                      fileDiff={fileDiff}
+                      options={{
+                        collapsed: false,
+                        diffStyle: "unified",
+                        theme: resolveDiffThemeName(resolvedTheme),
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {expandedBody ? (
+                // A subagent report runs to pages, so this scrolls rather than
+                // pushing the rest of the log off screen. `overscroll-contain` stops
+                // a scroll that reaches the end from continuing into the timeline
+                // behind it, which otherwise yanks the reader away mid-report.
+                // Capped at 30 lines of the 11px/1.625 font (48.75em), then scrolls.
+                <pre className="max-h-[48.75em] cursor-text overflow-auto overscroll-contain whitespace-pre-wrap break-words font-mono text-secondary-label text-[11px] leading-relaxed select-text">
+                  {expandedBody}
+                </pre>
+              ) : null}
             </div>
-          ) : null}
-          {expandedBody ? (
-            // A subagent report runs to pages, so this scrolls rather than
-            // pushing the rest of the log off screen. `overscroll-contain` stops
-            // a scroll that reaches the end from continuing into the timeline
-            // behind it, which otherwise yanks the reader away mid-report.
-            <pre className="max-h-96 cursor-text overflow-auto overscroll-contain whitespace-pre-wrap break-words font-mono text-secondary-label text-[11px] leading-relaxed select-text">
-              {expandedBody}
-            </pre>
-          ) : null}
-        </div>
+          </CollapsiblePanel>
+        </Collapsible>
       ) : null}
     </div>
   );

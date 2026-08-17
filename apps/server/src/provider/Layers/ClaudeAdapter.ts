@@ -179,10 +179,9 @@ interface ToolInFlight {
   /** Owning agent when this tool ran inside a subagent (see attribution note). */
   readonly agentId?: string;
   /**
-   * The `Task` tool call this one belongs to, for a subagent's work.
-   *
-   * Set only for tools recovered from a complete assistant message; the main
-   * agent's own calls arrive over the stream and have no parent.
+   * The `Task` tool call this one belongs to, for a subagent's work; the main
+   * agent's own calls have no parent. Set from `parent_tool_use_id` on both
+   * streamed and recovered tool blocks.
    */
   readonly parentToolUseId?: string;
 }
@@ -2744,7 +2743,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           // Terminal for input purposes: the tool has run, so the input is final
           // and diffs are safe to attach exactly once.
           ...toolInvocationFor(tool, { includeDiffs: true, result: toolUseResult }),
-          ...(tool.parentToolUseId ? { parentToolCallId: tool.parentToolUseId } : {}),
           ...(tool.agentId ? { agentId: tool.agentId } : {}),
           ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
           data: toolData,
@@ -2800,7 +2798,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
           ...toolInvocationFor(tool, { includeDiffs: true, result: toolUseResult }),
-          ...(tool.parentToolUseId ? { parentToolCallId: tool.parentToolUseId } : {}),
           ...(tool.agentId ? { agentId: tool.agentId } : {}),
           ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
           data: toolData,
@@ -2922,6 +2919,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         typeof block.input === "object" && block.input !== null
           ? (block.input as Record<string, unknown>)
           : {};
+      const owningAgentId = agentIdForParentToolUse(context.taskAgents, parentToolUseId);
       const tool: ToolInFlight = {
         itemId: block.id,
         itemType,
@@ -2930,6 +2928,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         detail: summarizeToolRequest(toolName, toolInput),
         input: toolInput,
         partialInputJson: "",
+        ...(owningAgentId ? { agentId: owningAgentId } : {}),
         parentToolUseId,
       };
 
@@ -2955,7 +2954,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
           ...toolInvocationFor(tool, { includeDiffs: false }),
-          parentToolCallId: parentToolUseId,
+          ...(tool.agentId ? { agentId: tool.agentId } : {}),
+          parentToolUseId,
           data: { toolName: tool.toolName, input: toolInput },
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),

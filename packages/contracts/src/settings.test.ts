@@ -43,6 +43,16 @@ describe("ClientSettings detailed tool call rows", () => {
   });
 });
 
+describe("ClientSettings expanded tool calls", () => {
+  it("defaults expanded tool calls on", () => {
+    expect(decodeClientSettings({}).expandedToolCalls).toBe(true);
+  });
+
+  it("round-trips an explicit opt-out", () => {
+    expect(decodeClientSettings({ expandedToolCalls: false }).expandedToolCalls).toBe(false);
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);

@@ -24,6 +24,27 @@ export interface TimelineEndState {
   readonly scrollLength?: number;
 }
 
+export type ToolCallPanelKind = "file" | "command" | "other";
+
+/**
+ * Expansion policy bucket for a tool-call row. File mutations stay open so a
+ * scroll-back shows what changed; command rows show the live terminal and then
+ * auto-close after settling; everything else follows the command timing.
+ */
+export function toolCallPanelKind(entry: WorkLogEntry): ToolCallPanelKind {
+  if (entry.itemType === "file_change") {
+    return "file";
+  }
+  // Fallback for tools the server didn't classify but that report file diffs.
+  if ((entry.toolInvocation?.changes?.length ?? 0) > 0) {
+    return "file";
+  }
+  if (entry.itemType === "command_execution") {
+    return "command";
+  }
+  return "other";
+}
+
 /**
  * Follow re-arm band above the hard bottom. Strict on purpose: LegendList's
  * isNearEnd fires within half a viewport, which re-armed live-follow while the
@@ -448,6 +469,8 @@ export function deriveMessagesTimelineRows(input: {
   runningTurnId?: TurnId | null;
   expandedTurnIds?: ReadonlySet<TurnId>;
   expandedWorkGroupIds?: ReadonlySet<string>;
+  /** Settings-driven: list every tool call (running ones included) with no "+N previous" collapsing. */
+  expandAllToolCalls?: boolean;
   isWorking: boolean;
   activeTurnStartedAt: string | null;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
@@ -515,11 +538,23 @@ export function deriveMessagesTimelineRows(input: {
         groupedEntries.push(nextEntry.entry);
         cursor += 1;
       }
-      const visibleGroupedEntries = groupedEntries.filter(
-        (entry) => !workEntryIndicatesToolNeutralStatus(entry),
-      );
+      // In expand-all mode neutral entries stay: an in-progress tool call is
+      // "neutral" (neither success nor failure yet) and hiding it is exactly
+      // what the mode exists to undo.
+      const visibleGroupedEntries = input.expandAllToolCalls
+        ? groupedEntries
+        : groupedEntries.filter((entry) => !workEntryIndicatesToolNeutralStatus(entry));
       if (visibleGroupedEntries.length > 0) {
-        if (visibleGroupedEntries.length <= MAX_VISIBLE_WORK_LOG_ENTRIES) {
+        if (input.expandAllToolCalls) {
+          for (const workEntry of visibleGroupedEntries) {
+            nextRows.push({
+              kind: "work",
+              id: workEntry.id,
+              createdAt: workEntry.createdAt,
+              groupedEntries: [workEntry],
+            });
+          }
+        } else if (visibleGroupedEntries.length <= MAX_VISIBLE_WORK_LOG_ENTRIES) {
           nextRows.push({
             kind: "work",
             id: timelineEntry.id,

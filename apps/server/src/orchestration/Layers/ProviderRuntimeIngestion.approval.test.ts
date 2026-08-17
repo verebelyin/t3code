@@ -34,47 +34,6 @@ describe("runtimeEventToActivities approval details", () => {
   });
 });
 
-describe("runtimeEventToActivities subagent linkage", () => {
-  it("carries item identity and the parent link onto the activity", () => {
-    // Without both halves the client cannot nest: it needs the parent's own id
-    // to match against, and the child's pointer to match with.
-    const [activity] = runtimeEventToActivities({
-      type: "item.started",
-      eventId: EventId.make("evt-item-started"),
-      provider: ProviderDriverKind.make("claudeAgent"),
-      createdAt: "2026-08-02T00:00:00.000Z",
-      threadId: ThreadId.make("thread-1"),
-      itemId: RuntimeItemId.make("toolu_child"),
-      payload: {
-        itemType: "command_execution",
-        status: "inProgress",
-        parentToolCallId: "toolu_task",
-      },
-    } satisfies ProviderRuntimeEvent);
-
-    expect(activity?.payload).toMatchObject({
-      providerItemId: "toolu_child",
-      parentToolCallId: "toolu_task",
-    });
-  });
-
-  it("leaves the parent link off the main agent's own calls", () => {
-    const [activity] = runtimeEventToActivities({
-      type: "item.started",
-      eventId: EventId.make("evt-item-started-main"),
-      provider: ProviderDriverKind.make("claudeAgent"),
-      createdAt: "2026-08-02T00:00:00.000Z",
-      threadId: ThreadId.make("thread-1"),
-      itemId: RuntimeItemId.make("toolu_main"),
-      payload: { itemType: "command_execution", status: "inProgress" },
-    } satisfies ProviderRuntimeEvent);
-
-    const payload = activity?.payload as Record<string, unknown>;
-    expect(payload.providerItemId).toBe("toolu_main");
-    expect(payload.parentToolCallId).toBeUndefined();
-  });
-});
-
 describe("runtimeEventToActivities task reports", () => {
   // A subagent's report is the deliverable of running it. The row preview limit
   // used to apply to the body too, cutting every report to a sentence and a half.

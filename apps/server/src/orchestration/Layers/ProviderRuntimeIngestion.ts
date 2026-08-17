@@ -810,12 +810,6 @@ export function runtimeEventToActivities(
             ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.tool ? { tool: event.payload.tool } : {}),
-            // Identity plus parent link: together these let a client nest a
-            // subagent's calls under the row that spawned them.
-            ...(event.itemId ? { providerItemId: event.itemId } : {}),
-            ...(event.payload.parentToolCallId
-              ? { parentToolCallId: event.payload.parentToolCallId }
-              : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.parentToolUseId
@@ -843,12 +837,6 @@ export function runtimeEventToActivities(
             itemType: event.payload.itemType,
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.tool ? { tool: event.payload.tool } : {}),
-            // Identity plus parent link: together these let a client nest a
-            // subagent's calls under the row that spawned them.
-            ...(event.itemId ? { providerItemId: event.itemId } : {}),
-            ...(event.payload.parentToolCallId
-              ? { parentToolCallId: event.payload.parentToolCallId }
-              : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.parentToolUseId
@@ -876,12 +864,6 @@ export function runtimeEventToActivities(
             itemType: event.payload.itemType,
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.tool ? { tool: event.payload.tool } : {}),
-            // Identity plus parent link: together these let a client nest a
-            // subagent's calls under the row that spawned them.
-            ...(event.itemId ? { providerItemId: event.itemId } : {}),
-            ...(event.payload.parentToolCallId
-              ? { parentToolCallId: event.payload.parentToolCallId }
-              : {}),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.parentToolUseId
               ? { parentToolUseId: event.payload.parentToolUseId }

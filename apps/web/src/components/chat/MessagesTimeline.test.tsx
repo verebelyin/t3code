@@ -200,6 +200,9 @@ function buildProps() {
     timestampFormat: "locale" as const,
     workspaceRoot: undefined,
     richToolCallRows: true,
+    // Off in the fixture: most tests assert the collapsed-by-default timeline;
+    // expanded-mode tests opt in per render.
+    expandedToolCalls: false,
     anchorMessageId: null,
     onAnchorReady: () => {},
     contentInsetEndAdjustment: 0,
@@ -433,8 +436,8 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-maintain-scroll-at-end="enabled"');
     expect(markup).toContain('data-maintain-visible-content-position="object"');
     expect(markup).toContain('data-maintain-visible-content-position-data="true"');
-    expect(markup).toContain('data-maintain-visible-content-position-size="true"');
-    expect(markup).toContain('data-maintain-visible-content-position-restore="true"');
+    expect(markup).toContain('data-maintain-visible-content-position-size="false"');
+    expect(markup).toContain('data-maintain-visible-content-position-restore="false"');
     expect(onAnchorReady).toHaveBeenCalledOnce();
     expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1);
   });
@@ -624,6 +627,107 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Bash(pnpm test run)");
+  });
+
+  it("keeps file-change bodies open from first render when expanded tool calls are on", () => {
+    // Old threads included: openness derives from the entry kind, not from
+    // having observed the call run.
+    const fileEntry = {
+      id: "entry-1",
+      kind: "work" as const,
+      createdAt: "2026-03-17T19:12:28.000Z",
+      entry: {
+        id: "work-1",
+        createdAt: "2026-03-17T19:12:28.000Z",
+        label: "Tool call",
+        tone: "tool" as const,
+        itemType: "file_change" as const,
+        detail: "src/foo.ts updated",
+      },
+    };
+
+    const openMarkup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} expandedToolCalls timelineEntries={[fileEntry]} />,
+    );
+    expect(openMarkup).toContain("max-h-[48.75em]");
+
+    const offMarkup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[fileEntry]} />,
+    );
+    expect(offMarkup).not.toContain("max-h-[48.75em]");
+  });
+
+  it("renders settled command bodies closed even with expanded tool calls on", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        expandedToolCalls
+        timelineEntries={[
+          {
+            id: "entry-1",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "work-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Tool call",
+              tone: "tool",
+              itemType: "command_execution",
+              detail: "pnpm test output",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).not.toContain("max-h-[48.75em]");
+  });
+
+  it("keeps a running command body closed until it has captured output", () => {
+    // Auto-opening onto the "no output" placeholder reveals nothing — the row
+    // must wait for real output before it is worth the space.
+    const runningCommandEntry = (output?: string) => ({
+      id: "entry-1",
+      kind: "work" as const,
+      createdAt: "2026-03-17T19:12:28.000Z",
+      entry: {
+        id: "work-1",
+        createdAt: "2026-03-17T19:12:28.000Z",
+        label: "Tool call",
+        tone: "tool" as const,
+        itemType: "command_execution" as const,
+        command: "pnpm test run",
+        toolLifecycleStatus: "inProgress" as const,
+        toolInvocation: {
+          name: "Bash",
+          target: "pnpm test run",
+          targetKind: "command" as const,
+          ...(output === undefined ? {} : { output }),
+        },
+      },
+    });
+
+    const noOutputMarkup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        expandedToolCalls
+        activeTurnInProgress
+        timelineEntries={[runningCommandEntry()]}
+      />,
+    );
+    // Closed row: the terminal body (and its "no output" placeholder) is not
+    // rendered at all.
+    expect(noOutputMarkup).not.toContain("no output");
+
+    const withOutputMarkup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        expandedToolCalls
+        activeTurnInProgress
+        timelineEntries={[runningCommandEntry("42 tests passed")]}
+      />,
+    );
+    expect(withOutputMarkup).toContain("42 tests passed");
   });
 
   it("falls back to the generic heading when the setting is off", () => {

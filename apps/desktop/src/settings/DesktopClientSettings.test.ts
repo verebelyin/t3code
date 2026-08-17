@@ -18,6 +18,7 @@ const clientSettings: ClientSettings = {
   dismissedProviderUpdateNotificationKeys: [],
   diffIgnoreWhitespace: true,
   environmentIdentificationMode: "artwork",
+  expandedToolCalls: true,
   favorites: [],
   fontFamilyCode: "",
   fontFamilyComposer: "",

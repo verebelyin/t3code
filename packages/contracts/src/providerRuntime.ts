@@ -469,15 +469,6 @@ export const ItemLifecyclePayload = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
   tool: Schema.optional(ToolInvocation),
-  /**
-   * Provider id of the tool call that produced this item, when it was a
-   * subagent's work rather than the main agent's.
-   *
-   * Points at the spawning `Task`/agent item, letting a client nest a
-   * subagent's tool calls under the row that started it instead of listing them
-   * as if the main agent had run them.
-   */
-  parentToolCallId: Schema.optional(TrimmedNonEmptyStringSchema),
   data: Schema.optional(Schema.Unknown),
   /**
    * Owning agent when this item ran inside a subagent (resolved from the

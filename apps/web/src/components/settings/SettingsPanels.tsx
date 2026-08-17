@@ -1069,6 +1069,30 @@ export function AppearanceSettingsPanel() {
             />
           }
         />
+
+        <SettingsRow
+          {...searchableSetting("expanded-tool-calls")}
+          description="List every tool call in the timeline. File changes stay open so scrolling back shows what changed; commands and other calls auto-open while running and close 5 seconds after finishing. Off keeps only the latest call visible behind a toggle."
+          resetAction={
+            settings.expandedToolCalls !== DEFAULT_UNIFIED_SETTINGS.expandedToolCalls ? (
+              <SettingResetButton
+                label="expanded tool calls"
+                onClick={() =>
+                  updateSettings({
+                    expandedToolCalls: DEFAULT_UNIFIED_SETTINGS.expandedToolCalls,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.expandedToolCalls}
+              onCheckedChange={(checked) => updateSettings({ expandedToolCalls: Boolean(checked) })}
+              aria-label="Show every tool call and auto-open the active one"
+            />
+          }
+        />
       </SettingsSection>
 
       <TypographySection />
