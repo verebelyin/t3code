@@ -243,14 +243,17 @@ describe("projectActivityPayload", () => {
         data: {
           toolName: "Bash",
           input: { command: "cd /repo && pnpm test --filter web", description: "run tests" },
-          result: { content: "bulk output that must not ship" },
+          result: { content: "first line of output\nbulk output that must not ship" },
         },
       },
     } as OrchestrationThreadActivity;
 
     const data = projectActivityPayload(activity).payload.data as Record<string, unknown>;
-    expect(data.item).toEqual({ input: { command: "cd /repo && pnpm test --filter web" } });
-    // The rest of the input and the raw result are still dropped.
+    expect(data.item).toEqual({
+      input: { command: "cd /repo && pnpm test --filter web" },
+      result: { content: "first line of output" },
+    });
+    // The rest of the input and everything past the result's summary line are still dropped.
     expect(JSON.stringify(data)).not.toContain("bulk output");
     expect(JSON.stringify(data)).not.toContain("run tests");
   });
