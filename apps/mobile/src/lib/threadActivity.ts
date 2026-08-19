@@ -324,6 +324,7 @@ function deriveWorkLogEntries(
     if (activity.kind === "task.updated" && !isTerminalBypassUpdate(activity)) continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
+    if (activity.kind === "account-rate-limits.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
@@ -447,6 +448,10 @@ function collapseDerivedWorkLogEntries(
   // Subagent rows collapse by identity, not adjacency (quiet-timeline
   // guarantee; mirrors web's session-logic).
   const taskRowIndex = new Map<string, number>();
+  // Index of the last NOT-yet-completed tool lifecycle row per collapse key,
+  // so a completion finds its streaming row across interleaved entries
+  // (mirrors web's session-logic keyed collapse).
+  const openToolRowIndexByKey = new Map<string, number>();
   for (const entry of entries) {
     const isTaskRow =
       entry.taskId !== undefined &&
@@ -463,12 +468,34 @@ function collapseDerivedWorkLogEntries(
       collapsed.push(entry);
       continue;
     }
-    const previous = collapsed.at(-1);
-    if (previous && shouldCollapseToolLifecycleEntries(previous, entry)) {
-      collapsed[collapsed.length - 1] = mergeDerivedWorkLogEntries(previous, entry);
+    const isToolLifecycleRow =
+      entry.activityKind === "tool.updated" || entry.activityKind === "tool.completed";
+    const keyedIndex =
+      isToolLifecycleRow && entry.collapseKey !== undefined
+        ? openToolRowIndexByKey.get(entry.collapseKey)
+        : undefined;
+    const candidateIndex = keyedIndex ?? collapsed.length - 1;
+    const candidate = collapsed[candidateIndex];
+    if (candidate && shouldCollapseToolLifecycleEntries(candidate, entry)) {
+      const merged = mergeDerivedWorkLogEntries(candidate, entry);
+      collapsed[candidateIndex] = merged;
+      if (merged.collapseKey !== undefined) {
+        if (merged.activityKind === "tool.completed") {
+          openToolRowIndexByKey.delete(merged.collapseKey);
+        } else {
+          openToolRowIndexByKey.set(merged.collapseKey, candidateIndex);
+        }
+      }
       continue;
     }
     collapsed.push(entry);
+    if (
+      isToolLifecycleRow &&
+      entry.collapseKey !== undefined &&
+      entry.activityKind !== "tool.completed"
+    ) {
+      openToolRowIndexByKey.set(entry.collapseKey, collapsed.length - 1);
+    }
   }
   return collapsed;
 }

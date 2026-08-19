@@ -796,6 +796,33 @@ export function runtimeEventToActivities(
       ];
     }
 
+    case "account.rate-limits.updated": {
+      const rateLimits = event.payload.rateLimits;
+      if (!rateLimits.fiveHour && !rateLimits.weekly) {
+        return [];
+      }
+
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "account-rate-limits.updated",
+          summary: "Account rate limits updated",
+          // `provider` lets the composer hide a stale meter after the thread
+          // switches to a provider without rate-limit support.
+          payload: {
+            provider: event.provider,
+            ...(rateLimits.fiveHour ? { fiveHour: rateLimits.fiveHour } : {}),
+            ...(rateLimits.weekly ? { weekly: rateLimits.weekly } : {}),
+            ...(rateLimits.planType ? { planType: rateLimits.planType } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "item.updated": {
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];

@@ -103,6 +103,7 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
+import { RateLimitMeter } from "./RateLimitMeter";
 import { resolveContextWindowModelDisplayName } from "./ContextWindowMeter.logic";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../pierre-icons";
@@ -227,6 +228,7 @@ import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
+import { deriveLatestRateLimitsSnapshot, type RateLimitsSnapshot } from "../../lib/rateLimits";
 import { formatProviderSkillDisplayName } from "../../providerSkillPresentation";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -394,6 +396,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
+  activeRateLimits: RateLimitsSnapshot | null;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
   pendingAction: {
@@ -419,6 +422,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
+      {props.activeRateLimits ? <RateLimitMeter limits={props.activeRateLimits} /> : null}
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
@@ -928,6 +932,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => deriveLatestContextWindowSnapshot(activeThreadActivities ?? []),
     [activeThreadActivities],
   );
+  // Account rate limits: Codex and Claude only, and only while the thread is
+  // still on the provider that reported them.
+  const activeRateLimits = useMemo(() => {
+    const limits = deriveLatestRateLimitsSnapshot(activeThreadActivities ?? []);
+    return limits &&
+      (selectedProvider === "codex" || selectedProvider === "claudeAgent") &&
+      limits.provider === selectedProvider
+      ? limits
+      : null;
+  }, [activeThreadActivities, selectedProvider]);
   const activeThreadModelDisplayName = useMemo(
     () => resolveContextWindowModelDisplayName(activeThreadModelSelection, modelOptionsByInstance),
     [activeThreadModelSelection, modelOptionsByInstance],
@@ -2681,7 +2695,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     <form
       ref={composerFormRef}
       onSubmit={submitComposer}
-      className="mx-auto w-full min-w-0 max-w-3xl"
+      className="mx-auto w-full min-w-0 max-w-[var(--chat-max-width,48rem)]"
       data-chat-composer-form="true"
     >
       <div
@@ -3214,6 +3228,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
                   activeContextWindow={activeContextWindow}
+                  activeRateLimits={activeRateLimits}
                   activeThreadModelDisplayName={activeThreadModelDisplayName}
                   pendingAction={pendingPrimaryAction}
                   isRunning={phase === "running"}

@@ -1152,6 +1152,164 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("normalizes Codex rate-limit notifications into account snapshots", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-codex-rate-limits-updated"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "account/rateLimits/updated",
+        payload: {
+          rateLimits: {
+            planType: "pro",
+            primary: {
+              usedPercent: 42,
+              windowDurationMins: 300,
+              resetsAt: 1_800_000_000,
+            },
+            secondary: {
+              usedPercent: 7,
+              windowDurationMins: 10_080,
+              resetsAt: 1_800_600_000,
+            },
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.type, "account.rate-limits.updated");
+      if (firstEvent.value.type !== "account.rate-limits.updated") {
+        return;
+      }
+      // Codex reports epoch seconds; the runtime event carries ISO instants.
+      NodeAssert.deepEqual(firstEvent.value.payload.rateLimits, {
+        fiveHour: {
+          usedPercent: 42,
+          resetsAt: "2027-01-15T08:00:00.000Z",
+        },
+        weekly: {
+          usedPercent: 7,
+          resetsAt: "2027-01-22T06:40:00.000Z",
+        },
+        planType: "pro",
+      });
+    }),
+  );
+
+  it.effect("keeps last-known rate-limit windows across sparse Codex updates", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 2)).pipe(
+        Effect.forkChild,
+      );
+
+      yield* runtime.emit({
+        id: asEventId("evt-codex-rate-limits-full"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "account/rateLimits/updated",
+        payload: {
+          rateLimits: {
+            planType: "plus",
+            primary: { usedPercent: 12, windowDurationMins: 300 },
+            secondary: { usedPercent: 64, windowDurationMins: 10_080 },
+          },
+        },
+      } satisfies ProviderEvent);
+
+      // A rolling update carrying only the 5h window must not clear the weekly
+      // window or the plan type observed earlier in the session.
+      yield* runtime.emit({
+        id: asEventId("evt-codex-rate-limits-sparse"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-01-01T00:00:01.000Z",
+        method: "account/rateLimits/updated",
+        payload: {
+          rateLimits: {
+            primary: { usedPercent: 31, windowDurationMins: 300 },
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      NodeAssert.equal(events.length, 2);
+      const secondEvent = events[1];
+      NodeAssert.equal(secondEvent?.type, "account.rate-limits.updated");
+      if (secondEvent?.type !== "account.rate-limits.updated") {
+        return;
+      }
+      NodeAssert.deepEqual(secondEvent.payload.rateLimits, {
+        fiveHour: { usedPercent: 31 },
+        weekly: { usedPercent: 64 },
+        planType: "plus",
+      });
+    }),
+  );
+
+  it.effect("ignores malformed Codex rate-limit payloads", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-codex-rate-limits-malformed"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "account/rateLimits/updated",
+        payload: {
+          rateLimits: {
+            primary: { usedPercent: "high" },
+          },
+        },
+      } satisfies ProviderEvent);
+
+      // The first runtime event to arrive is the well-formed follow-up, which
+      // is only true if the malformed notification emitted nothing.
+      yield* runtime.emit({
+        id: asEventId("evt-codex-rate-limits-after-malformed"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-01-01T00:00:01.000Z",
+        method: "account/rateLimits/updated",
+        payload: {
+          rateLimits: {
+            primary: { usedPercent: 5, windowDurationMins: 300 },
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.type, "account.rate-limits.updated");
+      if (firstEvent.value.type !== "account.rate-limits.updated") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.eventId, "evt-codex-rate-limits-after-malformed");
+      NodeAssert.deepEqual(firstEvent.value.payload.rateLimits, {
+        fiveHour: { usedPercent: 5 },
+      });
+    }),
+  );
+
   // Production calls startSession from a request fiber that finishes as soon as
   // the session exists. `Effect.forkChild` made the runtime event consumer a
   // child of that fiber, and Effect interrupts a fiber's children when it

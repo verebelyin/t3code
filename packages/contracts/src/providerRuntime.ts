@@ -760,8 +760,22 @@ const AccountUpdatedPayload = Schema.Struct({
 });
 export type AccountUpdatedPayload = typeof AccountUpdatedPayload.Type;
 
+export const AccountRateLimitWindow = Schema.Struct({
+  // 0-100; adapters clamp before emitting.
+  usedPercent: Schema.Number,
+  resetsAt: Schema.optional(IsoDateTime),
+});
+export type AccountRateLimitWindow = typeof AccountRateLimitWindow.Type;
+
+export const AccountRateLimitsSnapshot = Schema.Struct({
+  fiveHour: Schema.optional(AccountRateLimitWindow),
+  weekly: Schema.optional(AccountRateLimitWindow),
+  planType: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type AccountRateLimitsSnapshot = typeof AccountRateLimitsSnapshot.Type;
+
 const AccountRateLimitsUpdatedPayload = Schema.Struct({
-  rateLimits: Schema.Unknown,
+  rateLimits: AccountRateLimitsSnapshot,
 });
 export type AccountRateLimitsUpdatedPayload = typeof AccountRateLimitsUpdatedPayload.Type;
 

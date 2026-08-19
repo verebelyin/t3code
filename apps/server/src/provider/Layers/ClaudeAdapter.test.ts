@@ -8,6 +8,7 @@ import type {
   Options as ClaudeQueryOptions,
   PermissionMode,
   PermissionResult,
+  SDKControlGetUsageResponse,
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -60,6 +61,11 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   public readonly setPermissionModeCalls: Array<string> = [];
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
   public closeCalls = 0;
+  /**
+   * Left undefined unless a test opts in, so the adapter's feature detection of
+   * the experimental usage API is exercised by default.
+   */
+  public usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<SDKControlGetUsageResponse>;
 
   emit(message: SDKMessage): void {
     if (this.done) {
@@ -161,8 +167,12 @@ function makeHarness(config?: {
   readonly baseDir?: string;
   readonly claudeConfig?: Partial<ClaudeSettings>;
   readonly instanceId?: ProviderInstanceId;
+  readonly usage?: () => Promise<SDKControlGetUsageResponse>;
 }) {
   const query = new FakeClaudeQuery();
+  if (config?.usage) {
+    query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET = config.usage;
+  }
   let createInput:
     | {
         readonly prompt: AsyncIterable<SDKUserMessage>;
@@ -4605,6 +4615,258 @@ describe("ClaudeAdapterLive", () => {
         nativeThreadIds.every((threadId) => threadId === String(THREAD_ID)),
         true,
       );
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  const CLAUDE_INIT_MESSAGE = {
+    type: "system",
+    subtype: "init",
+    apiKeySource: "none",
+    claude_code_version: "test",
+    cwd: "/tmp/claude-adapter-test",
+    tools: [],
+    mcp_servers: [],
+    model: "claude-sonnet-4-5",
+    permissionMode: "bypassPermissions",
+    slash_commands: [],
+    output_style: "default",
+    skills: [],
+    plugins: [],
+    session_id: "550e8400-e29b-41d4-a716-446655440000",
+    uuid: "rate-limits-init",
+  } as unknown as SDKMessage;
+
+  function makeUsageResponse(): SDKControlGetUsageResponse {
+    return {
+      session: {
+        total_cost_usd: 0,
+        total_api_duration_ms: 0,
+        total_duration_ms: 0,
+        total_lines_added: 0,
+        total_lines_removed: 0,
+        model_usage: {},
+      },
+      subscription_type: "max",
+      rate_limits_available: true,
+      rate_limits: {
+        five_hour: { utilization: 21, resets_at: "2026-01-01T05:00:00.000Z" },
+        seven_day: { utilization: 48, resets_at: "2026-01-05T00:00:00.000Z" },
+      },
+      behaviors: null,
+    };
+  }
+
+  it.effect("maps Claude rate_limit_event messages to account rate-limit snapshots", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      const rateLimitFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "account.rate-limits.updated"),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+
+      harness.query.emit({
+        type: "rate_limit_event",
+        session_id: "sdk-session-rate-limit",
+        uuid: "rate-limit-1",
+        rate_limit_info: {
+          status: "allowed_warning",
+          rateLimitType: "five_hour",
+          utilization: 73,
+          resetsAt: 1_800_000_000,
+        },
+      } as unknown as SDKMessage);
+
+      const rateLimitEvent = yield* Fiber.join(rateLimitFiber);
+      assert.equal(rateLimitEvent._tag, "Some");
+      if (rateLimitEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(rateLimitEvent.value.type, "account.rate-limits.updated");
+      if (rateLimitEvent.value.type !== "account.rate-limits.updated") {
+        return;
+      }
+      // The payload carries the normalized snapshot only — the SDK envelope's
+      // `uuid` and `session_id` stay in `raw`, so clients never see them.
+      assert.deepEqual(rateLimitEvent.value.payload, {
+        rateLimits: {
+          fiveHour: {
+            usedPercent: 73,
+            // The SDK reports epoch seconds; the runtime event carries an ISO instant.
+            resetsAt: "2027-01-15T08:00:00.000Z",
+          },
+        },
+      });
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("fetches account rate limits once per session on the Claude init message", () => {
+    const usageCalls: Array<void> = [];
+    const harness = makeHarness({
+      usage: () => {
+        usageCalls.push(undefined);
+        return Promise.resolve(makeUsageResponse());
+      },
+    });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      const rateLimitFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "account.rate-limits.updated"),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+
+      // A second init (SDK resume hooks re-announce one) must not refetch.
+      harness.query.emit(CLAUDE_INIT_MESSAGE);
+      harness.query.emit(CLAUDE_INIT_MESSAGE);
+
+      const rateLimitEvent = yield* Fiber.join(rateLimitFiber);
+      assert.equal(rateLimitEvent._tag, "Some");
+      if (rateLimitEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(rateLimitEvent.value.type, "account.rate-limits.updated");
+      if (rateLimitEvent.value.type !== "account.rate-limits.updated") {
+        return;
+      }
+      assert.deepEqual(rateLimitEvent.value.payload, {
+        rateLimits: {
+          fiveHour: { usedPercent: 21, resetsAt: "2026-01-01T05:00:00.000Z" },
+          weekly: { usedPercent: 48, resetsAt: "2026-01-05T00:00:00.000Z" },
+          planType: "max",
+        },
+      });
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      // One fetch for two inits: the second init found the guard already set,
+      // so no second snapshot event can exist either.
+      assert.equal(usageCalls.length, 1);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("keeps the session healthy when the SDK has no usage API", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.sync(() => {
+          runtimeEvents.push(event);
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit(CLAUDE_INIT_MESSAGE);
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      runtimeEventsFiber.interruptUnsafe();
+
+      assert.equal(
+        runtimeEvents.some((event) => event.type === "account.rate-limits.updated"),
+        false,
+      );
+      assert.equal(
+        runtimeEvents.some((event) => event.type === "thread.started"),
+        true,
+      );
+      assert.equal(yield* adapter.hasSession(THREAD_ID), true);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("merges a Claude rate_limit_event over the fetched account snapshot", () => {
+    const harness = makeHarness({ usage: () => Promise.resolve(makeUsageResponse()) });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      const fetchedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "account.rate-limits.updated"),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+      harness.query.emit(CLAUDE_INIT_MESSAGE);
+      yield* Fiber.join(fetchedFiber);
+
+      const mergedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "account.rate-limits.updated"),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+
+      // A rate_limit_event reports only the binding window; the weekly window
+      // and plan type from the fetched snapshot must survive it.
+      harness.query.emit({
+        type: "rate_limit_event",
+        session_id: "sdk-session-rate-limit-merge",
+        uuid: "rate-limit-merge",
+        rate_limit_info: {
+          status: "allowed",
+          rateLimitType: "five_hour",
+          utilization: 90,
+        },
+      } as unknown as SDKMessage);
+
+      const mergedEvent = yield* Fiber.join(mergedFiber);
+      assert.equal(mergedEvent._tag, "Some");
+      if (mergedEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(mergedEvent.value.type, "account.rate-limits.updated");
+      if (mergedEvent.value.type !== "account.rate-limits.updated") {
+        return;
+      }
+      assert.deepEqual(mergedEvent.value.payload, {
+        rateLimits: {
+          fiveHour: { usedPercent: 90 },
+          weekly: { usedPercent: 48, resetsAt: "2026-01-05T00:00:00.000Z" },
+          planType: "max",
+        },
+      });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

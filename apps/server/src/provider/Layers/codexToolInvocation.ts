@@ -15,9 +15,11 @@ import type { CanonicalItemType, ToolInvocation, ToolInvocationChange } from "@t
 
 const MAX_TARGET_CHARS = 200;
 const MAX_CHANGES = 8;
-const MAX_DIFF_LINES = 40;
-const MAX_DIFF_CHARS = 2_000;
-const MAX_CHANGES_JSON_BYTES = 8_192;
+// Generous per-file diff budget (matches claudeToolInvocation): the client
+// shows diffs in a scrollable panel, so only pathological files get clipped.
+const MAX_DIFF_LINES = 1_000;
+const MAX_DIFF_CHARS = 48_000;
+const MAX_CHANGES_JSON_BYTES = 131_072;
 
 function clampTarget(value: string): string {
   const collapsed = value.replaceAll(/\s+/g, " ").trim();

@@ -1766,6 +1766,22 @@ export const makeCodexSessionRuntime = (
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
+      // One cheap read per session spawn so account limits show before the
+      // first turn completes. The response's rateLimits matches the
+      // updated-notification params, so it re-enters the normal notification
+      // path. Failure is non-fatal.
+      yield* client.request("account/rateLimits/read", undefined).pipe(
+        Effect.flatMap((response) =>
+          emitEvent({
+            kind: "notification",
+            threadId: options.threadId,
+            method: "account/rateLimits/updated",
+            payload: { rateLimits: response.rateLimits },
+          }),
+        ),
+        Effect.catch((cause) => Effect.logDebug("Codex rate-limit read failed.", { cause })),
+        Effect.forkIn(runtimeScope),
+      );
       return session;
     });
 

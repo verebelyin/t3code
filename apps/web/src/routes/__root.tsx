@@ -131,6 +131,7 @@ function RootRouteView() {
       <AnchoredToastProvider>
         <DocumentTitleSync />
         <GlassAppearanceSync />
+        <ChatWidthSync />
         <FontAppearanceSync />
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
         <RelayClientInstallDialog />
@@ -156,6 +157,26 @@ function GlassAppearanceSync() {
   useEffect(() => {
     document.documentElement.style.setProperty("--glass-opacity", `${glassOpacity}%`);
   }, [glassOpacity]);
+
+  return null;
+}
+
+/** default keeps the historical max-w-3xl; full still leaves gutter padding. */
+const CHAT_MAX_WIDTHS: Record<string, string> = {
+  default: "48rem",
+  wide: "64rem",
+  full: "100%",
+};
+
+function ChatWidthSync() {
+  const chatWidth = useClientSettings((settings) => settings.chatWidth);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--chat-max-width",
+      CHAT_MAX_WIDTHS[chatWidth] ?? CHAT_MAX_WIDTHS.default!,
+    );
+  }, [chatWidth]);
 
   return null;
 }

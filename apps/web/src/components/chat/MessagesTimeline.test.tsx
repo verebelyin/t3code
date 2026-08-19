@@ -829,9 +829,9 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("max-h-[48.75em]");
   });
 
-  it("keeps a running command body closed until it has captured output", () => {
-    // Auto-opening onto the "no output" placeholder reveals nothing — the row
-    // must wait for real output before it is worth the space.
+  it("keeps a running command body closed regardless of captured output", () => {
+    // Command rows never auto-open — only a manual toggle reveals the terminal
+    // body. Only file-change rows stay open on their own.
     const runningCommandEntry = (output?: string) => ({
       id: "entry-1",
       kind: "work" as const,
@@ -873,7 +873,7 @@ describe("MessagesTimeline", () => {
         timelineEntries={[runningCommandEntry("42 tests passed")]}
       />,
     );
-    expect(withOutputMarkup).toContain("42 tests passed");
+    expect(withOutputMarkup).not.toContain("42 tests passed");
   });
 
   it("falls back to the generic heading when the setting is off", () => {

@@ -159,7 +159,7 @@ describe("buildClaudeToolInvocation — diffs", () => {
     expect(second?.path).toBe("/other.ts");
   });
 
-  it("marks diffTruncated past the per-hunk line cap", () => {
+  it("keeps a multi-hundred-line write intact", () => {
     const long = Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n");
     const invocation = buildClaudeToolInvocation(
       "Write",
@@ -167,8 +167,20 @@ describe("buildClaudeToolInvocation — diffs", () => {
       WITH_DIFFS,
     );
     const change = invocation?.changes?.[0];
+    expect(change?.diffTruncated).toBeUndefined();
+    expect(change?.diff).toContain("line 199");
+  });
+
+  it("marks diffTruncated past the per-hunk line cap", () => {
+    const long = Array.from({ length: 2_000 }, (_, i) => `line ${i}`).join("\n");
+    const invocation = buildClaudeToolInvocation(
+      "Write",
+      { file_path: "/big.ts", content: long },
+      WITH_DIFFS,
+    );
+    const change = invocation?.changes?.[0];
     expect(change?.diffTruncated).toBe(true);
-    expect(change?.diff?.split("\n").length).toBeLessThanOrEqual(40);
+    expect(change?.diff?.split("\n").length).toBeLessThanOrEqual(1_000);
   });
 
   it("numbers the gutter from the file when the result carries a structuredPatch", () => {
@@ -322,10 +334,10 @@ describe("buildClaudeToolInvocation — diffs", () => {
     // Many files, each with a diff that fits its own cap but not the total.
     const edits = Array.from({ length: 8 }, (_, i) => ({
       file_path: `/file${i}.ts`,
-      old_string: Array.from({ length: 30 }, (_, n) => `old ${i} ${n} ${"pad".repeat(20)}`).join(
+      old_string: Array.from({ length: 150 }, (_, n) => `old ${i} ${n} ${"pad".repeat(20)}`).join(
         "\n",
       ),
-      new_string: Array.from({ length: 30 }, (_, n) => `new ${i} ${n} ${"pad".repeat(20)}`).join(
+      new_string: Array.from({ length: 150 }, (_, n) => `new ${i} ${n} ${"pad".repeat(20)}`).join(
         "\n",
       ),
     }));

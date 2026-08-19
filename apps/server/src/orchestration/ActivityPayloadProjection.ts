@@ -391,6 +391,22 @@ function isResolvableContextWindowActivity(activity: OrchestrationThreadActivity
 }
 
 /**
+ * Matches the validity rule in the web client's
+ * `deriveLatestRateLimitsSnapshot`: rows need at least one window with a
+ * finite `usedPercent` to resolve on the meter's backward walk.
+ */
+function isResolvableAccountRateLimitsActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "account-rate-limits.updated") {
+    return false;
+  }
+  const payload = asRecord(activity.payload);
+  const usedPercent = (window: unknown): unknown => asRecord(window)?.usedPercent;
+  return [usedPercent(payload?.fiveHour), usedPercent(payload?.weekly)].some(
+    (value) => typeof value === "number" && Number.isFinite(value),
+  );
+}
+
+/**
  * Drops all but the last resolvable context-window activity per turn from a
  * snapshot. Clients only ever read the latest usage value (walking the array
  * backwards), so shipping the full history — often thousands of rows on long
@@ -402,12 +418,13 @@ function isResolvableContextWindowActivity(activity: OrchestrationThreadActivity
  * newer updates still stream through and supersede the retained rows on the
  * client.
  */
-function dropStaleContextWindowActivities(
+function dropStaleLatestPerTurn(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
+  isResolvable: (activity: OrchestrationThreadActivity) => boolean,
 ): ReadonlyArray<OrchestrationThreadActivity> {
   const latestIndexByTurn = new Map<string | null, number>();
   for (let index = 0; index < activities.length; index += 1) {
-    if (isResolvableContextWindowActivity(activities[index]!)) {
+    if (isResolvable(activities[index]!)) {
       latestIndexByTurn.set(activities[index]!.turnId, index);
     }
   }
@@ -416,9 +433,21 @@ function dropStaleContextWindowActivities(
   }
   return activities.filter(
     (activity, index) =>
-      !isResolvableContextWindowActivity(activity) ||
-      latestIndexByTurn.get(activity.turnId) === index,
+      !isResolvable(activity) || latestIndexByTurn.get(activity.turnId) === index,
   );
+}
+
+function dropStaleContextWindowActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyArray<OrchestrationThreadActivity> {
+  return dropStaleLatestPerTurn(activities, isResolvableContextWindowActivity);
+}
+
+/** Same retention rule as context-window rows: latest resolvable row per turn. */
+function dropStaleAccountRateLimitsActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyArray<OrchestrationThreadActivity> {
+  return dropStaleLatestPerTurn(activities, isResolvableAccountRateLimitsActivity);
 }
 
 /**
@@ -530,7 +559,9 @@ export function projectThreadDetailSnapshot(
     thread: {
       ...snapshot.thread,
       activities: dropSupersededToolUpdatedActivities(
-        dropStaleContextWindowActivities(snapshot.thread.activities),
+        dropStaleAccountRateLimitsActivities(
+          dropStaleContextWindowActivities(snapshot.thread.activities),
+        ),
       ).map(projectActivityPayload),
     },
   };

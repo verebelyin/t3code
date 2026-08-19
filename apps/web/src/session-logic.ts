@@ -788,6 +788,7 @@ export function deriveWorkLogEntries(
     if (activity.kind === "task.updated") continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
+    if (activity.kind === "account-rate-limits.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
@@ -990,6 +991,9 @@ function collapseDerivedWorkLogEntries(
   // contains or how their progress rows interleave (quiet-timeline
   // guarantee).
   const spawnRowIndex = new Map<string, number>();
+  // Index of the last NOT-yet-completed tool lifecycle row per collapse key,
+  // so a completion can find its streaming row across interleaved entries.
+  const openToolRowIndexByKey = new Map<string, number>();
   // Batch membership is decided once, at the FIRST row seen for a taskId.
   // Claude background subagents settle between turns, so their completion
   // rows carry fresh synthetic turn ids (or none) — keying each row by its
@@ -1040,12 +1044,43 @@ function collapseDerivedWorkLogEntries(
       });
       continue;
     }
-    const previous = collapsed.at(-1);
-    if (previous && shouldCollapseToolLifecycleEntries(previous, entry)) {
-      collapsed[collapsed.length - 1] = mergeDerivedWorkLogEntries(previous, entry);
+    // Tool lifecycle rows merge with the still-open row that shares their
+    // collapse key, NOT just the adjacent one: providers interleave other
+    // rows (e.g. a local_bash task's started/completed pair) between a
+    // command's streaming update and its completion, and adjacency-only
+    // matching left the same call rendered twice (once "no output", once
+    // complete). Mirrors the server's snapshot-side identity matching in
+    // dropSupersededToolUpdatedActivities. Falls back to adjacency for rows
+    // without a key. The merged row keeps its original position, like the
+    // agent CTA anchor above.
+    const isToolLifecycleRow =
+      entry.activityKind === "tool.updated" || entry.activityKind === "tool.completed";
+    const keyedIndex =
+      isToolLifecycleRow && entry.collapseKey !== undefined
+        ? openToolRowIndexByKey.get(entry.collapseKey)
+        : undefined;
+    const candidateIndex = keyedIndex ?? collapsed.length - 1;
+    const candidate = collapsed[candidateIndex];
+    if (candidate && shouldCollapseToolLifecycleEntries(candidate, entry)) {
+      const merged = mergeDerivedWorkLogEntries(candidate, entry);
+      collapsed[candidateIndex] = merged;
+      if (merged.collapseKey !== undefined) {
+        if (merged.activityKind === "tool.completed") {
+          openToolRowIndexByKey.delete(merged.collapseKey);
+        } else {
+          openToolRowIndexByKey.set(merged.collapseKey, candidateIndex);
+        }
+      }
       continue;
     }
     collapsed.push(entry);
+    if (
+      isToolLifecycleRow &&
+      entry.collapseKey !== undefined &&
+      entry.activityKind !== "tool.completed"
+    ) {
+      openToolRowIndexByKey.set(entry.collapseKey, collapsed.length - 1);
+    }
   }
   return collapsed;
 }

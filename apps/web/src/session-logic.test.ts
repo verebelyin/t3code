@@ -802,6 +802,53 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("collapses a command's lifecycle across interleaved task rows", () => {
+    // Claude runs harness-tracked bash as a local_bash task whose
+    // started/completed rows land BETWEEN the command's streaming update and
+    // its completion. Adjacency-only matching rendered the same call twice
+    // (once "no output", once complete).
+    const command = {
+      itemType: "command_execution",
+      detail: "Bash: bun run runs:gcp",
+      tool: { name: "Bash", target: "bun run runs:gcp", targetKind: "text" },
+    };
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "cmd-streaming",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.updated",
+        summary: "Command run",
+        payload: command,
+      }),
+      makeActivity({
+        id: "task-start",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "task.started",
+        summary: "local_bash task started",
+        payload: { taskId: "task-1", taskType: "local_bash" },
+      }),
+      makeActivity({
+        id: "task-done",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "task.completed",
+        summary: "Task completed",
+        payload: { taskId: "task-1", taskType: "local_bash" },
+      }),
+      makeActivity({
+        id: "cmd-complete",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        kind: "tool.completed",
+        summary: "Command run",
+        payload: { ...command, tool: { ...command.tool, output: "COMPLETE" } },
+      }),
+    ]);
+
+    const commandEntries = entries.filter((entry) => entry.itemType === "command_execution");
+    expect(commandEntries).toHaveLength(1);
+    expect(commandEntries[0]?.toolLifecycleStatus).toBe("completed");
+    expect(commandEntries[0]?.toolInvocation?.output).toBe("COMPLETE");
+  });
+
   it("prefers the diff-bearing invocation when collapsing lifecycle entries", () => {
     // The streaming tool.updated carries name+target only; tool.completed adds
     // the diff. Collapsing must keep the diff regardless of arrival order.

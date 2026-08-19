@@ -102,7 +102,7 @@ describe("buildCodexToolInvocation", () => {
     expect(invocation?.changes).toEqual([{ path: "ok.ts", kind: "update" }]);
   });
 
-  it("truncates an over-long diff", () => {
+  it("keeps a multi-hundred-line diff intact", () => {
     const long = [
       "@@ -1,200 +1,200 @@",
       ...Array.from({ length: 200 }, (_, i) => `+line ${i}`),
@@ -113,8 +113,23 @@ describe("buildCodexToolInvocation", () => {
       WITH_DIFFS,
     );
     const change = invocation?.changes?.[0];
+    expect(change?.diffTruncated).toBeUndefined();
+    expect(change?.diff).toContain("+line 199");
+  });
+
+  it("truncates an over-long diff", () => {
+    const long = [
+      "@@ -1,2000 +1,2000 @@",
+      ...Array.from({ length: 2_000 }, (_, i) => `+line ${i}`),
+    ].join("\n");
+    const invocation = buildCodexToolInvocation(
+      "file_change",
+      { changes: [{ path: "big.ts", kind: "update", diff: long }] },
+      WITH_DIFFS,
+    );
+    const change = invocation?.changes?.[0];
     expect(change?.diffTruncated).toBe(true);
-    expect(change?.diff?.split("\n").length).toBeLessThanOrEqual(40);
+    expect(change?.diff?.split("\n").length).toBeLessThanOrEqual(1_000);
   });
 
   it("uses the supplied detail as the web search target", () => {

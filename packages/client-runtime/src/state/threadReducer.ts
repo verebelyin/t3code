@@ -54,6 +54,28 @@ function isResolvableContextWindowActivity(activity: OrchestrationThreadActivity
 }
 
 /**
+ * Matches the validity rule in `deriveLatestRateLimitsSnapshot` (and the
+ * server's snapshot-side `dropStaleAccountRateLimitsActivities`): rows need at
+ * least one window with a finite `usedPercent` to resolve.
+ */
+function isResolvableAccountRateLimitsActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "account-rate-limits.updated") {
+    return false;
+  }
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  const usedPercent = (window: unknown): unknown =>
+    window && typeof window === "object"
+      ? (window as Record<string, unknown>).usedPercent
+      : undefined;
+  return [usedPercent(payload?.fiveHour), usedPercent(payload?.weekly)].some(
+    (value) => typeof value === "number" && Number.isFinite(value),
+  );
+}
+
+/**
  * Apply a single orchestration event to an `OrchestrationThread`, returning
  * the updated thread, a deletion signal, or an "unchanged" marker when the
  * event doesn't affect this thread.
@@ -571,6 +593,9 @@ export function applyThreadDetailEvent(
       // thread.reverted that discards turns can still resolve a value from
       // the turns that survive.
       const supersedesContextWindow = isResolvableContextWindowActivity(activity);
+      // Rate-limit rows follow the same rule; each kind supersedes only its
+      // own kind.
+      const supersedesRateLimits = isResolvableAccountRateLimitsActivity(activity);
       const activities = pipe(
         thread.activities,
         Arr.filter(
@@ -580,6 +605,11 @@ export function applyThreadDetailEvent(
               supersedesContextWindow &&
               entry.turnId === activity.turnId &&
               isResolvableContextWindowActivity(entry)
+            ) &&
+            !(
+              supersedesRateLimits &&
+              entry.turnId === activity.turnId &&
+              isResolvableAccountRateLimitsActivity(entry)
             ),
         ),
         Arr.append(activity),

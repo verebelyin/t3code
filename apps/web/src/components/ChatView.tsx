@@ -6414,7 +6414,7 @@ function ChatViewContent(props: ChatViewProps) {
                   >
                     <div
                       className={cn(
-                        "chat-composer-glass-shell relative mx-auto w-full max-w-3xl",
+                        "chat-composer-glass-shell relative mx-auto w-full max-w-[var(--chat-max-width,48rem)]",
                         showComposerContextStrip && "chat-composer-glass-shell-with-context",
                       )}
                     >

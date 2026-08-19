@@ -16,6 +16,8 @@ import {
   ProviderInstanceId,
   type ProviderRuntimeEvent,
   type ProviderRequestKind,
+  type AccountRateLimitWindow,
+  type AccountRateLimitsSnapshot,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   RuntimeItemId,
@@ -26,9 +28,11 @@ import {
   ThreadId,
   ProviderSendTurnInput,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
 import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Queue from "effect/Queue";
@@ -190,6 +194,74 @@ function normalizeCodexTokenUsage(
       ? { lastReasoningOutputTokens: reasoningOutputTokens }
       : {}),
     compactsAutomatically: true,
+  };
+}
+
+type CodexRateLimitWindow =
+  EffectCodexSchema.V2AccountRateLimitsUpdatedNotification__RateLimitWindow;
+
+function codexRateLimitResetIso(resetsAt: number | null | undefined): string | undefined {
+  if (typeof resetsAt !== "number" || !Number.isFinite(resetsAt) || resetsAt <= 0) {
+    return undefined;
+  }
+  // Codex reports epoch seconds.
+  return DateTime.make(resetsAt * 1000).pipe(
+    Option.match({
+      onNone: () => undefined,
+      onSome: DateTime.formatIso,
+    }),
+  );
+}
+
+function normalizeCodexRateLimitWindow(window: CodexRateLimitWindow): AccountRateLimitWindow {
+  const resetsAt = codexRateLimitResetIso(window.resetsAt);
+  return {
+    usedPercent: Math.max(0, Math.min(100, window.usedPercent)),
+    ...(resetsAt ? { resetsAt } : {}),
+  };
+}
+
+const CODEX_FIVE_HOUR_WINDOW_MINS = 300;
+const CODEX_WEEKLY_WINDOW_MINS = 10080;
+
+/**
+ * Codex rate-limit notifications are sparse rolling updates: absent fields keep
+ * their last observed value, so new windows merge over the per-session
+ * accumulator. `windowDurationMins` classifies windows (300 = 5h, 10080 =
+ * weekly) with a positional primary/secondary fallback.
+ */
+function mergeCodexRateLimits(
+  last: AccountRateLimitsSnapshot | undefined,
+  sparse: EffectCodexSchema.V2AccountRateLimitsUpdatedNotification["rateLimits"],
+): AccountRateLimitsSnapshot {
+  let fiveHour = last?.fiveHour;
+  let weekly = last?.weekly;
+  const assign = (
+    window: CodexRateLimitWindow | null | undefined,
+    fallback: "fiveHour" | "weekly",
+  ) => {
+    if (!window) {
+      return;
+    }
+    const kind =
+      window.windowDurationMins === CODEX_FIVE_HOUR_WINDOW_MINS
+        ? "fiveHour"
+        : window.windowDurationMins === CODEX_WEEKLY_WINDOW_MINS
+          ? "weekly"
+          : fallback;
+    if (kind === "fiveHour") {
+      fiveHour = normalizeCodexRateLimitWindow(window);
+    } else {
+      weekly = normalizeCodexRateLimitWindow(window);
+    }
+  };
+  assign(sparse.primary, "fiveHour");
+  assign(sparse.secondary, "weekly");
+  const planType = trimText(sparse.planType) ?? last?.planType;
+  return {
+    ...(fiveHour ? { fiveHour } : {}),
+    ...(weekly ? { weekly } : {}),
+    ...(planType ? { planType } : {}),
   };
 }
 
@@ -771,6 +843,7 @@ function mapCollabAgentEvent(
 function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
+  rateLimitState: { current: AccountRateLimitsSnapshot | undefined },
 ): ReadonlyArray<ProviderRuntimeEvent> {
   if (event.kind === "notification" && event.method.startsWith("collabAgent/")) {
     return mapCollabAgentEvent(event, canonicalThreadId);
@@ -1402,7 +1475,16 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "account/rateLimits/updated") {
-    if (!readPayload(EffectCodexSchema.V2AccountRateLimitsUpdatedNotification, event.payload)) {
+    const payload = readPayload(
+      EffectCodexSchema.V2AccountRateLimitsUpdatedNotification,
+      event.payload,
+    );
+    if (!payload) {
+      return [];
+    }
+    const merged = mergeCodexRateLimits(rateLimitState.current, payload.rateLimits);
+    rateLimitState.current = merged;
+    if (!merged.fiveHour && !merged.weekly) {
       return [];
     }
     return [
@@ -1410,7 +1492,7 @@ function mapToRuntimeEvents(
         type: "account.rate-limits.updated",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          rateLimits: event.payload ?? {},
+          rateLimits: merged,
         },
       },
     ];
@@ -1703,6 +1785,11 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               }
             : {}),
         };
+        // Codex rate-limit notifications are sparse; the accumulator carries
+        // last-known windows across events for this session.
+        const rateLimitState: { current: AccountRateLimitsSnapshot | undefined } = {
+          current: undefined,
+        };
         const sessionScope = yield* Scope.make("sequential");
         let sessionScopeTransferred = false;
         yield* Effect.addFinalizer(() =>
@@ -1731,7 +1818,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         const eventFiber = yield* Stream.runForEach(runtime.events, (event) =>
           Effect.gen(function* () {
             yield* writeNativeEvent(event);
-            const runtimeEvents = mapToRuntimeEvents(event, event.threadId);
+            const runtimeEvents = mapToRuntimeEvents(event, event.threadId, rateLimitState);
             if (runtimeEvents.length === 0) {
               yield* Effect.logDebug("ignoring unhandled Codex provider event", {
                 method: event.method,

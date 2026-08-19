@@ -17,6 +17,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  type ChatWidth,
+  DEFAULT_CHAT_WIDTH,
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
   type EnvironmentIdentificationMode,
@@ -149,6 +151,16 @@ const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, s
   pill: "Version pill",
   none: "None",
 };
+
+const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
+  default: "Default",
+  wide: "Wide",
+  full: "Full width",
+};
+
+function isChatWidth(value: string): value is ChatWidth {
+  return value in CHAT_WIDTH_LABELS;
+}
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -1051,6 +1063,40 @@ export function AppearanceSettingsPanel() {
           }
         />
 
+        <SettingsRow
+          {...searchableSetting("chat-width")}
+          description="Max width of the centered chat column. Wide and full width fit more code and diff content on large screens."
+          resetAction={
+            settings.chatWidth !== DEFAULT_CHAT_WIDTH ? (
+              <SettingResetButton
+                label="chat width"
+                onClick={() => updateSettings({ chatWidth: DEFAULT_CHAT_WIDTH })}
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.chatWidth}
+              onValueChange={(value) => {
+                if (typeof value === "string" && isChatWidth(value)) {
+                  updateSettings({ chatWidth: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Chat width">
+                <SelectValue>{CHAT_WIDTH_LABELS[settings.chatWidth]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {Object.entries(CHAT_WIDTH_LABELS).map(([value, label]) => (
+                  <SelectItem hideIndicator key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
         {showEnvironmentIdentification ? (
           <SettingsRow
             {...searchableSetting("environment-identification")}
@@ -1119,7 +1165,7 @@ export function AppearanceSettingsPanel() {
 
         <SettingsRow
           {...searchableSetting("expanded-tool-calls")}
-          description="List every tool call in the timeline. File changes stay open so scrolling back shows what changed; commands and other calls auto-open while running and close 5 seconds after finishing. Off keeps only the latest call visible behind a toggle."
+          description="List every tool call in the timeline. File changes stay open so scrolling back shows what changed; commands and other calls open on click. Off keeps only the latest call visible behind a toggle."
           resetAction={
             settings.expandedToolCalls !== DEFAULT_UNIFIED_SETTINGS.expandedToolCalls ? (
               <SettingResetButton
@@ -1136,7 +1182,7 @@ export function AppearanceSettingsPanel() {
             <Switch
               checked={settings.expandedToolCalls}
               onCheckedChange={(checked) => updateSettings({ expandedToolCalls: Boolean(checked) })}
-              aria-label="Show every tool call and auto-open the active one"
+              aria-label="Show every tool call and keep file changes open"
             />
           }
         />

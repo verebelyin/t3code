@@ -194,7 +194,7 @@ function TimelineLoadEarlierHeader({
 }) {
   return (
     <div className={fade ? "pt-10 sm:pt-12" : "pt-3 sm:pt-4"}>
-      <div className="mx-auto w-full max-w-3xl pb-2">
+      <div className="mx-auto w-full max-w-[var(--chat-max-width,48rem)] pb-2">
         <button
           type="button"
           onClick={onLoadEarlier}
@@ -619,7 +619,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip" data-timeline-root="true">
+      <div
+        className="mx-auto w-full min-w-0 max-w-[var(--chat-max-width,48rem)] overflow-x-clip"
+        data-timeline-root="true"
+      >
         <TimelineRowContent row={item} />
       </div>
     ),
@@ -2140,6 +2143,12 @@ function buildToolCallExpandedBody(
      * payloads, changed paths — still belongs here.
      */
     readonly omitCommandAndOutput?: boolean;
+    /**
+     * Set when the row renders file diffs below this body: the diff already
+     * shows the whole edit, so the detail line (often the provider's raw
+     * serialized tool input) would only duplicate it in a worse form.
+     */
+    readonly omitDetail?: boolean;
   } = {},
 ): string | null {
   const blocks: string[] = [];
@@ -2153,7 +2162,7 @@ function buildToolCallExpandedBody(
     } else if (workEntry.command?.trim()) {
       blocks.push(workEntry.command.trim());
     }
-    if (workEntry.detail?.trim()) {
+    if (!options.omitDetail && workEntry.detail?.trim()) {
       blocks.push(workEntry.detail.trim());
     }
   }
@@ -2454,13 +2463,6 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
   );
 });
 
-/**
- * How long a just-settled auto-opened body stays up so its output registers
- * before closing. Applies to command and misc tool rows (success and failure
- * alike); file-change rows never auto-close — see `toolCallPanelKind`.
- */
-const AUTO_COLLAPSE_AFTER_SETTLE_MS = 5000;
-
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
@@ -2495,10 +2497,10 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const { workEntry, workspaceRoot, richToolCallRows, autoExpandActiveToolCall, resolvedTheme } =
     props;
   const activity = use(TimelineRowActivityCtx);
-  // Auto mode opens the running call's body once it has output to show and
-  // closes it shortly after the call settles; a manual toggle wins for the rest
-  // of the row's life. File-change rows instead stay open permanently (old
-  // threads included) so a scroll-back always shows what files were touched.
+  // File-change rows stay open permanently (old threads included) so a
+  // scroll-back always shows what files were touched. Command and misc tool
+  // rows only open on a manual toggle, which wins for the rest of the row's
+  // life.
   const isRunning = activity.activeTurnInProgress && workEntry.toolLifecycleStatus === "inProgress";
   const autoExpand = autoExpandActiveToolCall && workLogEntryIsToolLike(workEntry);
   const panelKind = toolCallPanelKind(workEntry);
@@ -2509,44 +2511,12 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   );
   const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot, {
     omitCommandAndOutput: commandView !== null,
+    omitDetail:
+      richToolCallRows &&
+      (workEntry.toolInvocation?.changes ?? []).some((change) => change.diff !== undefined),
   });
-  // A command row's body is worth auto-opening only when output has actually
-  // been captured — opening onto the "no output" placeholder reveals nothing.
-  // Non-command bodies are static (command echo, changed paths), so the body's
-  // presence is the signal.
-  const hasAutoOpenContent =
-    commandView !== null ? commandView.output !== null : expandedBody !== null;
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
-  const [autoOpen, setAutoOpen] = useState(autoExpand && isRunning && hasAutoOpenContent);
-  const wasRunningRef = useRef(isRunning);
-  useEffect(() => {
-    if (!autoExpand || alwaysOpen) {
-      return;
-    }
-    if (isRunning) {
-      wasRunningRef.current = true;
-      if (hasAutoOpenContent) {
-        setAutoOpen(true);
-      }
-      return;
-    }
-    if (!wasRunningRef.current) {
-      return;
-    }
-    if (!hasAutoOpenContent) {
-      // Settled with nothing to show yet. Keep the ref armed: adapters can
-      // ship the captured output a beat after the lifecycle flip, and that
-      // late arrival should still get the settle reveal below.
-      return;
-    }
-    wasRunningRef.current = false;
-    // Output that only arrives at settle still gets its five seconds on
-    // screen before the row closes.
-    setAutoOpen(true);
-    const timer = setTimeout(() => setAutoOpen(false), AUTO_COLLAPSE_AFTER_SETTLE_MS);
-    return () => clearTimeout(timer);
-  }, [autoExpand, alwaysOpen, isRunning, hasAutoOpenContent]);
-  const expanded = userExpanded ?? (alwaysOpen || autoOpen);
+  const expanded = userExpanded ?? alwaysOpen;
   // Latches on first open so the body keeps its content while the close
   // animation runs instead of emptying the instant `expanded` flips.
   const [hasOpened, setHasOpened] = useState(expanded);

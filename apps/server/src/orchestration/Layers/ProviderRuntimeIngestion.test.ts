@@ -3169,6 +3169,69 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("projects account rate-limit updates into normalized thread activities", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "account.rate-limits.updated",
+      eventId: asEventId("evt-account-rate-limits-updated"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        rateLimits: {
+          fiveHour: { usedPercent: 73, resetsAt: "2026-01-01T05:00:00.000Z" },
+          weekly: { usedPercent: 48, resetsAt: "2026-01-05T00:00:00.000Z" },
+          planType: "max",
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "account-rate-limits.updated",
+      ),
+    );
+
+    const rateLimitActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.kind === "account-rate-limits.updated",
+    );
+    expect(rateLimitActivity?.tone).toBe("info");
+    expect(rateLimitActivity?.summary).toBe("Account rate limits updated");
+    expect(rateLimitActivity?.payload).toEqual({
+      provider: "claudeAgent",
+      fiveHour: { usedPercent: 73, resetsAt: "2026-01-01T05:00:00.000Z" },
+      weekly: { usedPercent: 48, resetsAt: "2026-01-05T00:00:00.000Z" },
+      planType: "max",
+    });
+  });
+
+  it("ignores account rate-limit updates without a usable window", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "account.rate-limits.updated",
+      eventId: asEventId("evt-account-rate-limits-windowless"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        rateLimits: { planType: "pro" },
+      },
+    });
+
+    await harness.drain();
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(
+      thread?.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "account-rate-limits.updated",
+      ),
+    ).toBe(false);
+  });
+
   it("projects compacted thread state into context compaction activities", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

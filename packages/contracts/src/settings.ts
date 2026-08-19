@@ -61,6 +61,14 @@ export const SidebarAutoSettleAfterDays = Schema.Number.check(
 );
 export type SidebarAutoSettleAfterDays = typeof SidebarAutoSettleAfterDays.Type;
 export const DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS: SidebarAutoSettleAfterDays = 3;
+/**
+ * Max width of the centered chat column (timeline + composer). Presentation
+ * only; applied as a CSS variable so every chat surface follows.
+ */
+export const ChatWidth = Schema.Literals(["default", "wide", "full"]);
+export type ChatWidth = typeof ChatWidth.Type;
+export const DEFAULT_CHAT_WIDTH: ChatWidth = "default";
+
 export const MIN_GLASS_OPACITY = 40;
 export const MAX_GLASS_OPACITY = 100;
 export const GlassOpacity = Schema.Int.check(
@@ -161,9 +169,10 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   // Show every tool call in the timeline (no "+N previous" collapsing, running
   // calls included). File-change bodies stay open permanently; command and
-  // other bodies auto-open while streaming and close 5s after settling.
+  // other bodies open on a manual toggle only.
   // Presentation only, like `richToolCallRows`.
   expandedToolCalls: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_WIDTH))),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
   ),
@@ -827,6 +836,7 @@ export const ClientSettingsPatch = Schema.Struct({
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   expandedToolCalls: Schema.optionalKey(Schema.Boolean),
+  chatWidth: Schema.optionalKey(ChatWidth),
   glassOpacity: Schema.optionalKey(GlassOpacity),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),

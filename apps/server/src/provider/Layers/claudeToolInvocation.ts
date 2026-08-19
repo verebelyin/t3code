@@ -32,14 +32,19 @@ import {
 const MAX_NAME_CHARS = 64;
 const MAX_TARGET_CHARS = 200;
 const MAX_CHANGES = 8;
-const MAX_MULTI_EDIT_HUNKS_PER_FILE = 3;
-const HUNK_OPTIONS: UnifiedHunkOptions = { maxLines: 40, maxChars: 2_000 };
+const MAX_MULTI_EDIT_HUNKS_PER_FILE = 20;
+/**
+ * Per-file diff budget. Generous on purpose: the client renders the diff in a
+ * scrollable panel, so the reader expects the whole edit, not a teaser. The
+ * caps only guard against pathological cases (generated files, vendored blobs).
+ */
+const HUNK_OPTIONS: UnifiedHunkOptions = { maxLines: 1_000, maxChars: 48_000 };
 /**
  * Total budget for the serialized `changes` array. Past this, diffs are dropped
  * wholesale and only paths survive — a row that names its files is far more
  * useful than one that blows out the socket.
  */
-const MAX_CHANGES_JSON_BYTES = 8_192;
+const MAX_CHANGES_JSON_BYTES = 131_072;
 /**
  * Command-output budget, matching the per-hunk diff cap.
  *

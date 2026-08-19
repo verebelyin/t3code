@@ -15,6 +15,8 @@ import {
   type PermissionUpdate,
   type SDKMessage,
   type SDKControlGetContextUsageResponse,
+  type SDKControlGetUsageResponse,
+  type SDKRateLimitInfo,
   type SDKResultMessage,
   type SettingSource,
   type SDKUserMessage,
@@ -36,6 +38,8 @@ import {
   type ProviderRuntimeTurnStatus,
   type ProviderSendTurnInput,
   type ProviderSession,
+  type AccountRateLimitWindow,
+  type AccountRateLimitsSnapshot,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   type RuntimeContentStreamKind,
@@ -280,6 +284,9 @@ interface ClaudeSessionContext {
   /** Task ids that have started and not yet reached a terminal state. */
   readonly liveTaskIds: Set<string>;
   turnState: ClaudeTurnState | undefined;
+  lastKnownRateLimits: AccountRateLimitsSnapshot | undefined;
+  /** The account usage fetch fires once per session, on the init message. */
+  rateLimitsFetchStarted: boolean;
   lastKnownContextWindow: number | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
   lastKnownTotalProcessedTokens: number | undefined;
@@ -296,6 +303,8 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
   readonly getContextUsage?: () => Promise<SDKControlGetContextUsageResponse>;
+  /** SDK Query.usage_* — experimental, so feature-detected and failure-tolerant. */
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<SDKControlGetUsageResponse>;
   readonly close: () => void;
 }
 
@@ -588,6 +597,77 @@ function normalizeClaudeContextUsageApiSnapshot(
     ...(totalProcessedTokens !== undefined ? { totalProcessedTokens } : {}),
     compactsAutomatically: value.isAutoCompactEnabled,
   });
+}
+
+function clampRateLimitPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function claudeRateLimitEpochToIso(value: number): string | undefined {
+  if (!Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  // The SDK reports epoch seconds; tolerate milliseconds defensively.
+  return DateTime.make(value > 1e12 ? value : value * 1000).pipe(
+    Option.match({
+      onNone: () => undefined,
+      onSome: DateTime.formatIso,
+    }),
+  );
+}
+
+function normalizeClaudeUsageRateLimits(
+  usage: SDKControlGetUsageResponse,
+): AccountRateLimitsSnapshot | undefined {
+  if (!usage.rate_limits_available || !usage.rate_limits) {
+    return undefined;
+  }
+  const toWindow = (
+    window: { utilization: number | null; resets_at: string | null } | null | undefined,
+  ): AccountRateLimitWindow | undefined =>
+    window && typeof window.utilization === "number" && Number.isFinite(window.utilization)
+      ? {
+          usedPercent: clampRateLimitPercent(window.utilization),
+          ...(window.resets_at ? { resetsAt: window.resets_at } : {}),
+        }
+      : undefined;
+  const fiveHour = toWindow(usage.rate_limits.five_hour);
+  const weekly = toWindow(usage.rate_limits.seven_day);
+  if (!fiveHour && !weekly) {
+    return undefined;
+  }
+  return {
+    ...(fiveHour ? { fiveHour } : {}),
+    ...(weekly ? { weekly } : {}),
+    ...(usage.subscription_type ? { planType: usage.subscription_type } : {}),
+  };
+}
+
+/**
+ * A rate_limit_event reports only the binding window; merge it over the last
+ * snapshot. Model-specific and overage windows are deliberately not surfaced.
+ */
+function mergeClaudeRateLimitInfo(
+  last: AccountRateLimitsSnapshot | undefined,
+  info: SDKRateLimitInfo,
+): AccountRateLimitsSnapshot | undefined {
+  if (typeof info.utilization !== "number" || !Number.isFinite(info.utilization)) {
+    return last;
+  }
+  const resetsAt =
+    typeof info.resetsAt === "number" ? claudeRateLimitEpochToIso(info.resetsAt) : undefined;
+  const window: AccountRateLimitWindow = {
+    usedPercent: clampRateLimitPercent(info.utilization),
+    ...(resetsAt ? { resetsAt } : {}),
+  };
+  switch (info.rateLimitType) {
+    case "five_hour":
+      return { ...last, fiveHour: window };
+    case "seven_day":
+      return { ...last, weekly: window };
+    default:
+      return last;
+  }
 }
 
 function compactBoundaryTokenUsageSnapshot(
@@ -1196,6 +1276,13 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
     if (label) {
       return label;
     }
+  }
+
+  // File tools carry their target path; that names the call better than the
+  // raw serialized input (whose old/new strings the diff already shows).
+  const pathValue = input.file_path ?? input.path ?? input.notebook_path;
+  if (typeof pathValue === "string" && pathValue.trim().length > 0) {
+    return `${toolName}: ${pathValue.trim().slice(0, 400)}`;
   }
 
   const serialized = encodeJsonStringForDiagnostics(input) ?? "[unserializable input]";
@@ -2120,6 +2207,70 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             },
           }
         : {}),
+    });
+  });
+
+  const emitAccountRateLimits = Effect.fn("emitAccountRateLimits")(function* (
+    context: ClaudeSessionContext,
+    rateLimits: AccountRateLimitsSnapshot | undefined,
+    options?: {
+      readonly rawMethod?: string;
+      readonly rawPayload?: unknown;
+    },
+  ) {
+    if (!rateLimits || (!rateLimits.fiveHour && !rateLimits.weekly)) {
+      return;
+    }
+
+    context.lastKnownRateLimits = rateLimits;
+
+    const turnState = context.turnState;
+    const stamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "account.rate-limits.updated",
+      eventId: stamp.eventId,
+      provider: PROVIDER,
+      createdAt: stamp.createdAt,
+      threadId: context.session.threadId,
+      ...(turnState ? { turnId: turnState.turnId } : {}),
+      payload: {
+        rateLimits,
+      },
+      providerRefs: nativeProviderRefs(context),
+      ...(options?.rawMethod || options?.rawPayload
+        ? {
+            raw: {
+              source: "claude.sdk.message" as const,
+              ...(options.rawMethod ? { method: options.rawMethod } : {}),
+              payload: options.rawPayload,
+            },
+          }
+        : {}),
+    });
+  });
+
+  const fetchAccountRateLimits = Effect.fn("fetchAccountRateLimits")(function* (
+    context: ClaudeSessionContext,
+  ) {
+    const fetchUsage = context.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+    if (!fetchUsage) {
+      return;
+    }
+
+    const usage = yield* Effect.promise(async () => {
+      try {
+        return await fetchUsage.call(context.query);
+      } catch {
+        return undefined;
+      }
+    });
+    if (!usage) {
+      return;
+    }
+
+    yield* emitAccountRateLimits(context, normalizeClaudeUsageRateLimits(usage), {
+      rawMethod: "claude/control/get_usage",
+      rawPayload: usage,
     });
   });
 
@@ -3259,6 +3410,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             config: message as Record<string, unknown>,
           },
         });
+        // Account rate limits fetch once per session, forked so a slow usage
+        // endpoint never delays SDK message handling.
+        if (!context.rateLimitsFetchStarted) {
+          context.rateLimitsFetchStarted = true;
+          yield* fetchAccountRateLimits(context).pipe(
+            Effect.catch((cause) =>
+              Effect.logDebug("Claude account usage fetch failed.", { cause }),
+            ),
+            Effect.forkDetach,
+          );
+        }
         return;
       case "status":
         yield* offerRuntimeEvent({
@@ -3654,12 +3816,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     if (message.type === "rate_limit_event") {
-      yield* offerRuntimeEvent({
-        ...base,
-        type: "account.rate-limits.updated",
-        payload: {
-          rateLimits: message,
-        },
+      const merged = mergeClaudeRateLimitInfo(context.lastKnownRateLimits, message.rate_limit_info);
+      yield* emitAccountRateLimits(context, merged, {
+        rawMethod: sdkNativeMethod(message),
+        rawPayload: message,
       });
       return;
     }
@@ -4418,6 +4578,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         workflowMemberFingerprints,
         liveTaskIds,
         turnState: undefined,
+        lastKnownRateLimits: undefined,
+        rateLimitsFetchStarted: false,
         lastKnownContextWindow: initialContextWindow,
         lastKnownTokenUsage: undefined,
         lastKnownTotalProcessedTokens: undefined,
