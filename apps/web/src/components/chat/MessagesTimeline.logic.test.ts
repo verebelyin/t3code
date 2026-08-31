@@ -314,6 +314,23 @@ describe("resolveAssistantMessageCopyState", () => {
       visible: false,
     });
   });
+
+  it("copies the rendered representation of Codex directives", () => {
+    expect(
+      resolveAssistantMessageCopyState({
+        showCopyButton: true,
+        text: [
+          'Created :codex-file-citation{path="outputs/report.xlsx" purpose="output"}.',
+          "",
+          '::artifact-template{skill_name="artifact-template-hello-world" skill_directory="/Users/test/.codex/skills/artifact-template-hello-world" display_name="Hello World" artifact_kind="document"}',
+        ].join("\n"),
+        streaming: false,
+      }),
+    ).toEqual({
+      text: "Created [report.xlsx](<outputs/report.xlsx>).\n\nHello World (Document template)",
+      visible: true,
+    });
+  });
 });
 
 describe("deriveMessagesTimelineRows", () => {
@@ -496,7 +513,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRow?.assistantTurnDiffSummary).toBe(assistantTurnDiffSummary);
   });
 
-  it("keeps the first and terminal assistant messages visible around settled work", () => {
+  it("folds the first assistant message and settled work before the terminal response", () => {
     const timelineEntries = [
       {
         id: "user-entry",
@@ -572,7 +589,6 @@ describe("deriveMessagesTimelineRows", () => {
     expect(foldRow?.label).toBe("Worked for 22s");
     expect(collapsedRows.map((row) => row.id)).toEqual([
       "user-entry",
-      "assistant-first-entry",
       "turn-fold:turn-1",
       "assistant-final-entry",
     ]);
@@ -588,8 +604,8 @@ describe("deriveMessagesTimelineRows", () => {
 
     expect(expandedRows.map((row) => row.id)).toEqual([
       "user-entry",
-      "assistant-first-entry",
       "turn-fold:turn-1",
+      "assistant-first-entry",
       "work-toggle:work-entry-1",
       "assistant-final-entry",
     ]);
@@ -598,7 +614,7 @@ describe("deriveMessagesTimelineRows", () => {
     ).toBeDefined();
   });
 
-  it("folds assistant messages between the first and terminal messages", () => {
+  it("folds all assistant messages before the terminal message", () => {
     const timelineEntries = [
       {
         id: "assistant-first-entry",
@@ -652,11 +668,7 @@ describe("deriveMessagesTimelineRows", () => {
       revertTurnCountByUserMessageId: new Map(),
     });
 
-    expect(rows.map((row) => row.id)).toEqual([
-      "assistant-first-entry",
-      "turn-fold:turn-1",
-      "assistant-final-entry",
-    ]);
+    expect(rows.map((row) => row.id)).toEqual(["turn-fold:turn-1", "assistant-final-entry"]);
   });
 
   it("derives a sane duration for a steer-superseded turn with one instant commentary message", () => {
@@ -1409,7 +1421,10 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRow?.showAssistantCopyButton).toBe(false);
   });
 
-  it("models work log overflow expansion as inserted list rows", () => {
+  it.each([
+    ["tools", "tool", "Used 3 tools"],
+    ["tools and status updates", "info", "Used 2 tools and received 1 update"],
+  ] as const)("expands %s through the same activity group", (_, middleTone, summary) => {
     const timelineEntries = [
       {
         id: "work-entry-1",
@@ -1430,9 +1445,9 @@ describe("deriveMessagesTimelineRows", () => {
         entry: {
           id: "work-2",
           createdAt: "2026-01-01T00:00:02Z",
-          label: "edit",
+          label: "Status updated",
           detail: "Editing MessagesTimeline.tsx",
-          tone: "tool" as const,
+          tone: middleTone,
         },
       },
       {
@@ -1467,8 +1482,7 @@ describe("deriveMessagesTimelineRows", () => {
       groupId: "work-group:work-entry-1",
       hiddenCount: 3,
       expanded: false,
-      onlyToolEntries: true,
-      summary: "Used 3 tools",
+      summary,
     });
     expect(expandedRows.map((row) => row.id)).toEqual([
       "work-toggle:work-entry-1",
@@ -1564,7 +1578,7 @@ describe("deriveMessagesTimelineRows", () => {
     ["an error-toned entry recovers", ["error", "info", "completed"], false],
     ["the final failure is hidden", ["completed", "failed", "info"], true],
     ["the final failure is visible", ["failed", "info", "failed"], true],
-    ["the only failure is visible", ["completed", "info", "failed"], false],
+    ["the only failure is visible", ["completed", "info", "failed"], true],
   ] as const)(
     "uses the final tool call for mixed work groups when %s",
     (_, statuses, hasFailure) => {
@@ -1600,10 +1614,18 @@ describe("deriveMessagesTimelineRows", () => {
       });
 
       expect(rows.find((row) => row.kind === "work-toggle")).toMatchObject({
-        hiddenCount: 2,
-        summary: null,
+        hiddenCount: statuses.some((status) => status === "error") ? 2 : 3,
+        summary: statuses.some((status) => status === "error")
+          ? "Received 1 update and used 1 tool"
+          : "Used 2 tools and received 1 update",
         hasFailure,
       });
+      if (statuses.some((status) => status === "error")) {
+        expect(rows[0]).toMatchObject({
+          kind: "work",
+          groupedEntries: [{ tone: "error", label: "Command failed" }],
+        });
+      }
     },
   );
 });
