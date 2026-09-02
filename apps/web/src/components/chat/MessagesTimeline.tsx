@@ -5,7 +5,6 @@ import {
   type MessageId,
   type ScopedThreadRef,
   type ServerProviderSkill,
-  type ToolInvocation,
   type TurnId,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -27,12 +26,10 @@ const NOOP_OPEN_AGENTS = () => {};
 const NOOP_USE_ARTIFACT_TEMPLATE = () => {};
 const NOOP_OPEN_ATTACHMENT = (_attachment: ChatFileAttachment) => {};
 import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
-import { formatToolInvocationLabel, toolDisplayName } from "@t3tools/shared/toolInvocationLabel";
 import {
   createContext,
   Fragment,
   memo,
-  Suspense,
   use,
   useCallback,
   useEffect,
@@ -65,9 +62,8 @@ import {
   getRenderablePatch,
   resolveDiffThemeName,
   resolveFileDiffPath,
-  type DiffThemeName,
 } from "../../lib/diffRendering";
-import { getSyntaxHighlighterPromise, PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
+import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import { formatTaskProgressMeta } from "../../taskProgressDisplay";
 import ChatMarkdown, { ChatMarkdownAssetImage } from "../ChatMarkdown";
 import { T3Wordmark } from "../T3Wordmark";
@@ -83,9 +79,7 @@ import {
   FileIcon,
   GlobeIcon,
   HammerIcon,
-  LoaderCircleIcon,
   MessageCircleIcon,
-  MinusIcon,
   MousePointerClickIcon,
   PaintbrushIcon,
   PlayIcon,
@@ -168,11 +162,15 @@ import {
 } from "./userMessageTerminalContexts";
 import { SkillInlineText } from "./SkillInlineText";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import { buildCommandInvocationView } from "../../commandInvocationDisplay";
 import {
-  buildCommandInvocationView,
-  type CommandInvocationView,
-} from "../../commandInvocationDisplay";
-import { buildToolInvocationPatch } from "../../toolInvocationDisplay";
+  CommandInvocationBlock,
+  invocationIconName,
+  ToolCallStatusIndicator,
+  ToolInvocationDiffs,
+  toolInvocationDiffChanges,
+  toolInvocationHeading,
+} from "./ToolInvocationRow";
 import {
   buildReviewCommentRenderablePatch,
   formatReviewCommentFence,
@@ -2613,150 +2611,7 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
   return workToneIcon(workEntry.tone).iconName;
 }
 
-/**
- * Format a tool invocation target for display. Paths become bare
- * workspace-relative (`src/foo.ts`); everything else is shown as reported.
- */
-function formatInvocationTarget(
-  invocation: ToolInvocation,
-  workspaceRoot: string | undefined,
-): string | undefined {
-  if (invocation.target === undefined) return undefined;
-  return invocation.targetKind === "path"
-    ? formatWorkspaceRelativePath(invocation.target, workspaceRoot, { style: "bare" })
-    : invocation.target;
-}
-
-/** Icon for a named invocation, so `Read` does not inherit the edit pencil. */
-function invocationIconName(invocation: ToolInvocation): WorkEntryIconName | undefined {
-  switch (toolDisplayName(invocation.name)) {
-    case "Read":
-    case "Grep":
-    case "Glob":
-      return "eye";
-    case "Bash":
-      return "terminal";
-    case "Write":
-    case "Edit":
-    case "MultiEdit":
-    case "NotebookEdit":
-      return "square-pen";
-    case "Task":
-      return "hammer";
-    case "WebFetch":
-    case "WebSearch":
-      return "globe";
-    default:
-      return undefined;
-  }
-}
-
-/** `Read(src/foo.ts)` when the server named the call; the compact label otherwise. */
-function toolWorkEntryHeading(
-  workEntry: TimelineWorkEntry,
-  invocation: ToolInvocation | undefined,
-  workspaceRoot: string | undefined,
-): string {
-  if (invocation) {
-    const label = formatToolInvocationLabel({
-      name: invocation.name,
-      target: formatInvocationTarget(invocation, workspaceRoot),
-      ...(invocation.targetKind ? { targetKind: invocation.targetKind } : {}),
-    });
-    if (label.length > 0) {
-      return label;
-    }
-  }
-  return workEntryDisplayLabel(workEntry, workspaceRoot);
-}
-
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
-
-const COMMAND_CODE_CLASS =
-  "min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/90 select-text";
-
-/**
- * The command, highlighted as shell source by the same Shiki instance the diff
- * and markdown renderers use, so a `Bash` row is themed like everything else.
- *
- * Suspends while the `bash` grammar loads; the caller renders the plain command
- * as the fallback, which is what stays on screen if highlighting never resolves.
- */
-function HighlightedCommand(props: { command: string; themeName: DiffThemeName }) {
-  const { command, themeName } = props;
-  const highlighter = use(getSyntaxHighlighterPromise("bash"));
-  const html = useMemo(() => {
-    try {
-      return highlighter.codeToHtml(command, { lang: "bash", theme: themeName });
-    } catch {
-      return null;
-    }
-  }, [command, highlighter, themeName]);
-
-  if (html === null) {
-    return <code className={COMMAND_CODE_CLASS}>{command}</code>;
-  }
-  return (
-    <div
-      className={cn(COMMAND_CODE_CLASS, "tool-command-shiki")}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
-}
-
-/**
- * Expanded body of a command tool call, shaped like a terminal transcript.
- *
- * A prompt line carries the command and its exit status; the captured output
- * scrolls beneath it. Deliberately static — our users watch these rows all day
- * and a repainting caret or spinner here would cost frames for nothing.
- */
-function CommandInvocationBlock(props: { view: CommandInvocationView; themeName: DiffThemeName }) {
-  const { command, output, outputTruncated, exitCode, failed } = props.view;
-  return (
-    <div className="overflow-hidden rounded-md border border-border/50">
-      <div className="flex items-start gap-2 bg-muted/50 px-2.5 py-2">
-        <span
-          className="shrink-0 select-none font-mono text-[11px] leading-relaxed text-muted-foreground/50"
-          aria-hidden
-        >
-          $
-        </span>
-        <Suspense fallback={<code className={COMMAND_CODE_CLASS}>{command}</code>}>
-          <HighlightedCommand command={command} themeName={props.themeName} />
-        </Suspense>
-        {exitCode !== undefined ? (
-          <span
-            className={cn(
-              "shrink-0 select-none rounded-sm px-1 py-px font-mono text-[10px] leading-relaxed",
-              failed
-                ? "bg-destructive/12 text-destructive"
-                : "bg-foreground/6 text-muted-foreground/80",
-            )}
-          >
-            exit {exitCode}
-          </span>
-        ) : null}
-      </div>
-      {output ? (
-        <>
-          <pre className="max-h-64 cursor-text overflow-auto border-t border-border/40 px-2.5 py-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
-            {output}
-          </pre>
-          {outputTruncated ? (
-            <p className="border-t border-border/30 px-2.5 py-1 font-mono text-[10px] leading-relaxed text-muted-foreground/50">
-              Output truncated
-            </p>
-          ) : null}
-        </>
-      ) : (
-        <p className="border-t border-border/40 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground/45">
-          no output
-        </p>
-      )}
-    </div>
-  );
-}
 
 /**
  * A1 spawn CTA: one anchored row per workflow run (or per-turn direct-spawn
@@ -2881,11 +2736,10 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
   const groupView = use(WorkGroupViewCtx);
-  // Single gate for the whole feature: with the setting off, `invocation` is
-  // undefined everywhere below and the row renders exactly as it did before
-  // `payload.tool` existed — the same path pre-`tool` activities still take.
+  // Single gate for the rich-row feature: with the setting off, `invocation`
+  // is undefined everywhere below and the row renders exactly as it did
+  // before `payload.tool` existed — the same path pre-`tool` activities take.
   const invocation = richToolCallRows ? workEntry.toolInvocation : undefined;
-  const isRunning = activity.activeTurnInProgress && workEntry.toolLifecycleStatus === "inProgress";
   // File-change rows stay open permanently (old threads included) so a
   // scroll-back always shows what files were touched. Command and misc tool
   // rows only open on a manual toggle, which wins for the rest of the row's
@@ -2919,10 +2773,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     () => (richToolCallRows ? buildCommandInvocationView(workEntry) : null),
     [richToolCallRows, workEntry],
   );
-  const diffChanges = useMemo(
-    () => (invocation?.changes ?? []).filter((change) => change.diff !== undefined),
-    [invocation],
-  );
+  const diffChanges = useMemo(() => toolInvocationDiffChanges(invocation), [invocation]);
   const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot, {
     omitCommandAndOutput: commandView !== null,
     omitDetail: diffChanges.length > 0,
@@ -2931,12 +2782,13 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";
   const showFailedIndicator = workEntryDisplayIndicatesToolFailure(workEntry);
   const toolPresentation = resolveWorkEntryToolPresentation(workEntry);
-  const invocationIcon = invocation ? invocationIconName(invocation) : undefined;
   const entryIconName =
     showWarningIndicator || (showFailedIndicator && !toolPresentation)
       ? "circle-alert"
-      : (invocationIcon ?? workEntryIconName(workEntry));
-  const previewText = toolWorkEntryHeading(workEntry, invocation, workspaceRoot);
+      : ((invocation && invocationIconName(invocation)) ?? workEntryIconName(workEntry));
+  const previewText =
+    (invocation && toolInvocationHeading(invocation, workspaceRoot)) ??
+    workEntryDisplayLabel(workEntry, workspaceRoot);
   const displayText =
     !invocation && !toolPresentation && expanded && workEntry.command?.trim()
       ? "Command"
@@ -2945,29 +2797,6 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     () => formatTaskProgressMeta(workEntry.taskMeta),
     [workEntry.taskMeta],
   );
-  // Parsing and highlighting a patch pulls in shiki, so defer every bit of it
-  // until the row has actually been opened once.
-  const renderedDiffs = useMemo(() => {
-    if (!hasOpened || diffChanges.length === 0) return [];
-    return diffChanges.flatMap((change) => {
-      const displayPath = formatWorkspaceRelativePath(change.path, workspaceRoot, {
-        style: "bare",
-      });
-      const patch = getRenderablePatch(
-        buildToolInvocationPatch(change, displayPath),
-        `tool-invocation:${workEntry.id}:${change.path}`,
-      );
-      // `null` (empty patch) and `kind: "raw"` (unparseable) both fall back to
-      // the plain text body rather than rendering a broken diff.
-      if (patch === null || patch.kind !== "files") {
-        return [];
-      }
-      return patch.files.map((fileDiff, index) => ({
-        key: `${change.path}:${index}`,
-        fileDiff,
-      }));
-    });
-  }, [hasOpened, diffChanges, workspaceRoot, workEntry.id]);
   const viewedImagePath = workEntryViewedImagePath(workEntry);
   const viewedImage =
     viewedImagePath && threadRef
@@ -2976,11 +2805,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           workspaceRoot,
         })
       : null;
-  const canExpand =
-    expandedBody !== null ||
-    commandView !== null ||
-    diffChanges.length > 0 ||
-    (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined);
+  const canExpand = expandedBody !== null || commandView !== null || diffChanges.length > 0;
   const showDestructiveRowStyle =
     showFailedIndicator &&
     (workEntrySignalsSevereFailure(workEntry) || !workLogEntryIsToolLike(workEntry));
@@ -3004,10 +2829,17 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         ? "text-secondary-label"
         : "text-foreground/80";
   const turnSettled = !activity.activeTurnInProgress;
-  const showNeutralIndicator = !turnSettled && workEntryIndicatesToolNeutralStatus(workEntry);
-  const showSuccessIndicator =
-    workEntryIndicatesToolSuccess(workEntry) ||
-    (turnSettled && workEntryIndicatesToolNeutralStatus(workEntry));
+  const toolCallStatus =
+    activity.activeTurnInProgress && workEntry.toolLifecycleStatus === "inProgress"
+      ? "running"
+      : showFailedIndicator && !toolPresentation
+        ? "failed"
+        : workEntryIndicatesToolSuccess(workEntry) ||
+            (turnSettled && workEntryIndicatesToolNeutralStatus(workEntry))
+          ? "completed"
+          : !turnSettled && workEntryIndicatesToolNeutralStatus(workEntry)
+            ? "empty"
+            : null;
   const accessibleDisplayText = showFailedIndicator
     ? `${previewText}, tool call failed`
     : previewText;
@@ -3065,70 +2897,21 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           {showFailedIndicator && toolPresentation ? (
             <XIcon aria-hidden className="size-3 shrink-0 text-icon-muted" />
           ) : null}
-          <div className="flex shrink-0 items-center gap-px text-icon-muted">
-            <span
-              className="flex size-4 shrink-0 items-center justify-center"
-              aria-hidden={!canExpand}
-            >
-              {canExpand ? (
-                <ChevronDownIcon
-                  className={cn(
-                    "size-3 shrink-0 opacity-70 transition-transform duration-200",
-                    expanded && "rotate-180",
-                  )}
-                  aria-hidden
-                />
-              ) : null}
-            </span>
-            {richToolCallRows ? (
-              <span className="flex size-4 shrink-0 items-center justify-center">
-                {isRunning ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={<span className="flex size-4 items-center justify-center" />}
-                    >
-                      <LoaderCircleIcon
-                        className="block size-3 shrink-0 animate-spin text-muted-foreground/70"
-                        aria-hidden
-                      />
-                    </TooltipTrigger>
-                    <TooltipPopup>Running</TooltipPopup>
-                  </Tooltip>
-                ) : showFailedIndicator && !toolPresentation ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={<span className="flex size-4 items-center justify-center" />}
-                    >
-                      <XIcon className="block size-3 shrink-0 text-destructive" aria-hidden />
-                    </TooltipTrigger>
-                    <TooltipPopup>Failed</TooltipPopup>
-                  </Tooltip>
-                ) : showSuccessIndicator ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={<span className="flex size-4 items-center justify-center" />}
-                    >
-                      <CheckIcon
-                        className="block size-3 shrink-0 stroke-current"
-                        stroke="currentColor"
-                        aria-hidden
-                      />
-                    </TooltipTrigger>
-                    <TooltipPopup>Completed</TooltipPopup>
-                  </Tooltip>
-                ) : showNeutralIndicator ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={<span className="flex size-4 items-center justify-center" />}
-                    >
-                      <MinusIcon className="block size-3 shrink-0 opacity-70" aria-hidden />
-                    </TooltipTrigger>
-                    <TooltipPopup>Empty</TooltipPopup>
-                  </Tooltip>
-                ) : null}
-              </span>
-            ) : null}
-          </div>
+          <span
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center",
+              !canExpand && "invisible",
+            )}
+            aria-hidden
+          >
+            <ChevronDownIcon
+              className={cn(
+                "size-3 shrink-0 text-icon-muted opacity-70 transition-transform duration-200",
+                expanded && "rotate-180",
+              )}
+            />
+          </span>
+          {richToolCallRows ? <ToolCallStatusIndicator status={toolCallStatus} /> : null}
         </div>
       </div>
       {canExpand ? (
@@ -3153,27 +2936,15 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
                 </div>
               ) : null}
               {commandView ? (
-                <CommandInvocationBlock
-                  view={commandView}
-                  themeName={resolveDiffThemeName(resolvedTheme)}
-                />
+                <CommandInvocationBlock view={commandView} resolvedTheme={resolvedTheme} />
               ) : null}
-              {renderedDiffs.length > 0 ? (
-                // ~30 lines of the default code font, then scrolls.
-                <div className="diff-render-surface max-h-[536px] overflow-auto overscroll-contain">
-                  {renderedDiffs.map(({ key, fileDiff }) => (
-                    <FileDiff
-                      key={key}
-                      fileDiff={fileDiff}
-                      options={{
-                        collapsed: false,
-                        diffStyle: "unified",
-                        theme: resolveDiffThemeName(resolvedTheme),
-                        preferredHighlighter: PREFERRED_HIGHLIGHTER,
-                      }}
-                    />
-                  ))}
-                </div>
+              {hasOpened && diffChanges.length > 0 ? (
+                <ToolInvocationDiffs
+                  entryId={workEntry.id}
+                  changes={diffChanges}
+                  workspaceRoot={workspaceRoot}
+                  resolvedTheme={resolvedTheme}
+                />
               ) : null}
               {expandedBody ? (
                 <pre className={toolCallExpandedBodyClassName}>{expandedBody}</pre>

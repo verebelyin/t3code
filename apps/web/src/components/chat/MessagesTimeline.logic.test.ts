@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
 import { MessageId, TurnId } from "@t3tools/contracts";
-import { type WorkLogEntry } from "../../session-logic";
 import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
@@ -11,7 +10,6 @@ import {
   resolveWorkGroupScrollIndex,
   shouldFollowWorkGroupAppend,
   shouldPreserveAssistantLineBreaks,
-  toolCallPanelKind,
   workEntryDisplayLabel,
 } from "./MessagesTimeline.logic";
 
@@ -188,48 +186,6 @@ describe("shouldPreserveAssistantLineBreaks", () => {
       ),
     ).toBe(true);
     expect(shouldPreserveAssistantLineBreaks("A normal\\nmarkdown paragraph")).toBe(false);
-  });
-});
-
-describe("toolCallPanelKind", () => {
-  const baseEntry: WorkLogEntry = {
-    id: "entry-1",
-    createdAt: "2026-01-01T00:00:00Z",
-    label: "Tool",
-    tone: "tool",
-  };
-
-  it("classifies file_change items as file", () => {
-    expect(toolCallPanelKind({ ...baseEntry, itemType: "file_change" })).toBe("file");
-  });
-
-  it("classifies unlabelled tools that report diffs as file", () => {
-    expect(
-      toolCallPanelKind({
-        ...baseEntry,
-        itemType: "mcp_tool_call",
-        toolInvocation: {
-          name: "Edit",
-          changes: [{ path: "src/foo.ts", diff: "--- a\n+++ b" }],
-        },
-      }),
-    ).toBe("file");
-  });
-
-  it("classifies command_execution items as command", () => {
-    expect(toolCallPanelKind({ ...baseEntry, itemType: "command_execution" })).toBe("command");
-  });
-
-  it("classifies everything else as other", () => {
-    expect(toolCallPanelKind(baseEntry)).toBe("other");
-    expect(toolCallPanelKind({ ...baseEntry, itemType: "web_search" })).toBe("other");
-    expect(
-      toolCallPanelKind({
-        ...baseEntry,
-        itemType: "mcp_tool_call",
-        toolInvocation: { name: "Read", changes: [] },
-      }),
-    ).toBe("other");
   });
 });
 
@@ -1743,50 +1699,6 @@ describe("deriveMessagesTimelineRows", () => {
     expect(expandedRows.find((row) => row.kind === "work-toggle")).toMatchObject({
       expanded: true,
     });
-  });
-
-  it("expand-all mode lists every tool call, running ones included, with no toggle row", () => {
-    const rows = deriveMessagesTimelineRows({
-      timelineEntries: [
-        {
-          id: "work-entry-1",
-          kind: "work" as const,
-          createdAt: "2026-01-01T00:00:01Z",
-          entry: {
-            id: "work-1",
-            createdAt: "2026-01-01T00:00:01Z",
-            label: "read",
-            detail: "Reading package.json",
-            tone: "tool" as const,
-          },
-        },
-        {
-          id: "work-entry-2",
-          kind: "work" as const,
-          createdAt: "2026-01-01T00:00:02Z",
-          entry: {
-            id: "work-2",
-            createdAt: "2026-01-01T00:00:02Z",
-            label: "bash",
-            detail: "Running tests",
-            tone: "tool" as const,
-            // In-progress entries are neutral-status; expand-all keeps them.
-            toolLifecycleStatus: "inProgress" as const,
-          },
-        },
-      ],
-      expandAllToolCalls: true,
-      isWorking: true,
-      activeTurnStartedAt: null,
-      turnDiffSummaryByAssistantMessageId: new Map(),
-      revertTurnCountByUserMessageId: new Map(),
-    });
-
-    expect(rows.filter((row) => row.kind === "work").map((row) => row.id)).toEqual([
-      "work-1",
-      "work-2",
-    ]);
-    expect(rows.some((row) => row.kind === "work-toggle")).toBe(false);
   });
 
   it.each([true, false])(

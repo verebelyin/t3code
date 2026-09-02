@@ -17,8 +17,6 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  type ChatWidth,
-  DEFAULT_CHAT_WIDTH,
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
   type EnvironmentIdentificationMode,
@@ -115,6 +113,7 @@ import {
 } from "../../appearanceFonts";
 import { CodeFontPreview, PromptFontPreview, TerminalFontPreview } from "./SettingsFontPreviews";
 import { SharedSettingsMismatchAlert } from "./SharedSettingsMismatchAlert";
+import { ForkAppearanceSettingsRows } from "./ForkAppearanceSettingsRows";
 import { discoverInstalledFonts, FontFamilyPicker, useFontEnumeration } from "./FontFamilyPicker";
 import {
   NumberField,
@@ -160,16 +159,6 @@ const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, s
   pill: "Version pill",
   none: "None",
 };
-
-const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
-  default: "Default",
-  wide: "Wide",
-  full: "Full width",
-};
-
-function isChatWidth(value: string): value is ChatWidth {
-  return value in CHAT_WIDTH_LABELS;
-}
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -1161,40 +1150,6 @@ export function AppearanceSettingsPanel() {
           }
         />
 
-        <SettingsRow
-          {...searchableSetting("chat-width")}
-          description="Max width of the centered chat column. Wide and full width fit more code and diff content on large screens."
-          resetAction={
-            settings.chatWidth !== DEFAULT_CHAT_WIDTH ? (
-              <SettingResetButton
-                label="chat width"
-                onClick={() => updateSettings({ chatWidth: DEFAULT_CHAT_WIDTH })}
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={settings.chatWidth}
-              onValueChange={(value) => {
-                if (typeof value === "string" && isChatWidth(value)) {
-                  updateSettings({ chatWidth: value });
-                }
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Chat width">
-                <SelectValue>{CHAT_WIDTH_LABELS[settings.chatWidth]}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                {Object.entries(CHAT_WIDTH_LABELS).map(([value, label]) => (
-                  <SelectItem hideIndicator key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          }
-        />
-
         {showEnvironmentIdentification ? (
           <SettingsRow
             {...searchableSetting("environment-identification")}
@@ -1237,53 +1192,7 @@ export function AppearanceSettingsPanel() {
           />
         ) : null}
 
-        <SettingsRow
-          {...searchableSetting("tool-call-rows")}
-          description="Name tool calls in the timeline, like Read(src/app.ts), and show an inline diff when a file changes. Off shows one generic row per tool call."
-          resetAction={
-            settings.richToolCallRows !== DEFAULT_UNIFIED_SETTINGS.richToolCallRows ? (
-              <SettingResetButton
-                label="detailed tool calls"
-                onClick={() =>
-                  updateSettings({
-                    richToolCallRows: DEFAULT_UNIFIED_SETTINGS.richToolCallRows,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.richToolCallRows}
-              onCheckedChange={(checked) => updateSettings({ richToolCallRows: Boolean(checked) })}
-              aria-label="Show detailed tool calls with file names and inline diffs"
-            />
-          }
-        />
-
-        <SettingsRow
-          {...searchableSetting("expanded-tool-calls")}
-          description="List every tool call in the timeline. File changes stay open so scrolling back shows what changed; commands and other calls open on click. Off keeps only the latest call visible behind a toggle."
-          resetAction={
-            settings.expandedToolCalls !== DEFAULT_UNIFIED_SETTINGS.expandedToolCalls ? (
-              <SettingResetButton
-                label="expanded tool calls"
-                onClick={() =>
-                  updateSettings({
-                    expandedToolCalls: DEFAULT_UNIFIED_SETTINGS.expandedToolCalls,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.expandedToolCalls}
-              onCheckedChange={(checked) => updateSettings({ expandedToolCalls: Boolean(checked) })}
-              aria-label="Show every tool call and keep file changes open"
-            />
-          }
-        />
+        <ForkAppearanceSettingsRows />
       </SettingsSection>
 
       <TypographySection />

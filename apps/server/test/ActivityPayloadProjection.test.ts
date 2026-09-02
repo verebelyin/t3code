@@ -12,7 +12,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { buildThreadFeed, type ThreadFeedActivity } from "../../mobile/src/lib/threadActivity.ts";
 import { deriveLatestContextWindowSnapshot } from "../../web/src/lib/contextWindow.ts";
-import { deriveLatestRateLimitsSnapshot } from "../../web/src/lib/rateLimits.ts";
 import { deriveWorkLogEntries } from "../../web/src/session-logic.ts";
 import {
   projectActivityEvent,
@@ -248,63 +247,7 @@ describe("projectActivityPayload", () => {
     });
   });
 
-  it("passes the top-level tool invocation through while still dropping data.input", () => {
-    // Load-bearing for `Read(src/foo.ts)` rows: the projection rewrites only
-    // `payload.data`, so `payload.tool` reaches clients without widening the
-    // allowlist. If this regresses, tool rows silently fall back to the
-    // generic heading instead of failing loudly.
-    const tool = {
-      name: "Edit",
-      target: "/repo/src/a.ts",
-      targetKind: "path",
-      changes: [{ path: "/repo/src/a.ts", kind: "update", diff: "@@ -1,1 +1,1 @@\n-a\n+b" }],
-    };
-    const activity = {
-      ...fixtures[0]!,
-      payload: {
-        itemType: "file_change",
-        tool,
-        data: {
-          toolName: "Edit",
-          input: { file_path: "/repo/src/a.ts", old_string: "a", new_string: "b" },
-        },
-      },
-    } as OrchestrationThreadActivity;
-
-    const payload = projectActivityPayload(activity).payload as Record<string, unknown>;
-    expect(payload.tool).toEqual(tool);
-    const data = payload.data as Record<string, unknown>;
-    expect(data.input).toBeUndefined();
-  });
-
-  it("keeps the command from Claude's flat data shape", () => {
-    // Claude spreads the call as `data.{toolName,input,result}` with no `item`
-    // wrapper. Dropping it here left the client rebuilding the command from the
-    // `detail` summary, which renders as a prefixed, clipped `Bash: cd …`.
-    const activity = {
-      ...fixtures[0]!,
-      payload: {
-        itemType: "command_execution",
-        detail: "Bash: cd /repo && pnpm test --filter web",
-        data: {
-          toolName: "Bash",
-          input: { command: "cd /repo && pnpm test --filter web", description: "run tests" },
-          result: { content: "first line of output\nbulk output that must not ship" },
-        },
-      },
-    } as OrchestrationThreadActivity;
-
-    const data = projectActivityPayload(activity).payload.data as Record<string, unknown>;
-    expect(data.item).toEqual({
-      input: { command: "cd /repo && pnpm test --filter web" },
-      result: { content: "first line of output" },
-    });
-    // The rest of the input and everything past the result's summary line are still dropped.
-    expect(JSON.stringify(data)).not.toContain("bulk output");
-    expect(JSON.stringify(data)).not.toContain("run tests");
-  });
-
-  it("keeps current web and mobile derived output identical for every tool item type", () => {
+  it("keeps current web and mobile derived fields for every tool item type", () => {
     for (const activity of fixtures) {
       const projected = projectActivityPayload(activity);
       if (activity === fixtures[0]) {
@@ -664,105 +607,5 @@ describe("context-window snapshot dedup", () => {
       thread: makeThread([fixtures[4]!]),
     });
     expect(projected.thread.activities).toEqual([projectActivityPayload(fixtures[4]!)]);
-  });
-});
-
-describe("account rate-limits snapshot dedup", () => {
-  function makeRateLimitsActivity(
-    id: string,
-    fiveHourPercent: number,
-    turn = `turn-${id}`,
-  ): OrchestrationThreadActivity {
-    return {
-      id: EventId.make(id),
-      tone: "info",
-      kind: "account-rate-limits.updated",
-      summary: "Account rate limits updated",
-      payload: {
-        provider: "claudeAgent",
-        fiveHour: { usedPercent: fiveHourPercent, resetsAt: "2026-07-27T05:00:00.000Z" },
-        weekly: { usedPercent: 12 },
-        planType: "max",
-      },
-      turnId: TurnId.make(turn),
-      createdAt: "2026-07-27T00:00:00.000Z",
-    };
-  }
-
-  it("keeps only the latest account rate-limits activity per turn in snapshots", () => {
-    const stale1 = makeRateLimitsActivity("rl-1", 10, "turn-a");
-    const stale2 = makeRateLimitsActivity("rl-2", 20, "turn-a");
-    const latestA = makeRateLimitsActivity("rl-3", 30, "turn-a");
-    const latestB = makeRateLimitsActivity("rl-4", 40, "turn-b");
-    const tool = fixtures[0]!;
-
-    const projected = projectThreadDetailSnapshot({
-      snapshotSequence: 7,
-      thread: makeThread([stale1, stale2, tool, latestA, latestB]),
-    });
-
-    expect(projected.thread.activities.map((activity) => activity.id)).toEqual([
-      tool.id,
-      latestA.id,
-      latestB.id,
-    ]);
-    expect(projected.thread.activities[2]?.payload).toEqual(latestB.payload);
-  });
-
-  it("matches what the web client derives from the full history", () => {
-    const activities = [makeRateLimitsActivity("rl-1", 10), makeRateLimitsActivity("rl-2", 20)];
-    const projected = projectThreadDetailSnapshot({
-      snapshotSequence: 7,
-      thread: makeThread(activities),
-    });
-
-    expect(deriveLatestRateLimitsSnapshot(projected.thread.activities)).toEqual(
-      deriveLatestRateLimitsSnapshot(activities),
-    );
-  });
-
-  it("does not let a malformed row shadow an earlier valid row in the same turn", () => {
-    const valid = makeRateLimitsActivity("rl-valid", 55, "turn-a");
-    const malformed: OrchestrationThreadActivity = {
-      ...makeRateLimitsActivity("rl-broken", 0, "turn-a"),
-      payload: { provider: "claudeAgent", fiveHour: { usedPercent: null } },
-    };
-
-    const projected = projectThreadDetailSnapshot({
-      snapshotSequence: 7,
-      thread: makeThread([valid, malformed]),
-    });
-
-    expect(projected.thread.activities.map((activity) => activity.id)).toEqual([
-      valid.id,
-      malformed.id,
-    ]);
-    expect(deriveLatestRateLimitsSnapshot(projected.thread.activities)).toEqual(
-      deriveLatestRateLimitsSnapshot([valid, malformed]),
-    );
-  });
-
-  it("dedups rate-limit rows and context-window rows independently", () => {
-    const staleRateLimits = makeRateLimitsActivity("rl-stale", 10, "turn-a");
-    const latestRateLimits = makeRateLimitsActivity("rl-latest", 20, "turn-a");
-    const contextWindow: OrchestrationThreadActivity = {
-      id: EventId.make("ctx-mixed"),
-      tone: "info",
-      kind: "context-window.updated",
-      summary: "Context window updated",
-      payload: { usedTokens: 1_000, maxTokens: 200_000 },
-      turnId: TurnId.make("turn-a"),
-      createdAt: "2026-07-27T00:00:00.000Z",
-    };
-
-    const projected = projectThreadDetailSnapshot({
-      snapshotSequence: 7,
-      thread: makeThread([staleRateLimits, contextWindow, latestRateLimits]),
-    });
-
-    expect(projected.thread.activities.map((activity) => activity.id)).toEqual([
-      contextWindow.id,
-      latestRateLimits.id,
-    ]);
   });
 });

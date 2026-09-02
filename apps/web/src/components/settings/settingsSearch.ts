@@ -95,11 +95,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["transparent transparency solid menus dialogs composer"],
   },
   {
-    id: "chat-width",
-    title: "Chat width",
-    to: "/settings/appearance",
-  },
-  {
     id: "environment-identification",
     title: "Environment identification",
     to: "/settings/appearance",
@@ -143,16 +138,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Word wrap",
     to: "/settings/appearance",
     searchTerms: ["long lines code blocks tables diffs file previews"],
-  },
-  {
-    id: "tool-call-rows",
-    title: "Detailed tool calls",
-    to: "/settings/appearance",
-  },
-  {
-    id: "expanded-tool-calls",
-    title: "Expanded tool calls",
-    to: "/settings/appearance",
   },
   {
     id: "project-grouping",
@@ -463,6 +448,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Archived threads",
     to: "/settings/archived",
     searchTerms: ["restore reopen deleted history projects"],
+  },
+  // Fork-only settings, grouped at the tail so upstream additions above merge cleanly.
+  {
+    id: "chat-width",
+    title: "Chat width",
+    to: "/settings/appearance",
+  },
+  {
+    id: "tool-call-rows",
+    title: "Detailed tool calls",
+    to: "/settings/appearance",
+  },
+  {
+    id: "expanded-tool-calls",
+    title: "Expanded tool calls",
+    to: "/settings/appearance",
   },
 ] as const satisfies ReadonlyArray<SettingsSearchItem>;
 

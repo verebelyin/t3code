@@ -225,12 +225,6 @@ export const ClientSettingsSchema = Schema.Struct({
   environmentIdentificationMode: EnvironmentIdentificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE)),
   ),
-  // Show every tool call in the timeline (no "+N previous" collapsing, running
-  // calls included). File-change bodies stay open permanently; command and
-  // other bodies open on a manual toggle only.
-  // Presentation only, like `richToolCallRows`.
-  expandedToolCalls: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_WIDTH))),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
   ),
@@ -291,11 +285,6 @@ export const ClientSettingsSchema = Schema.Struct({
   // old keys, so everyone, including prior beta opt-outs, resets to the new
   // default sidebar.
   legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  // Render tool calls as `Read(src/foo.ts)` with inline diffs for edits instead
-  // of one generic row. Presentation only — the server always emits the
-  // underlying `payload.tool`, so toggling takes effect without a reconnect and
-  // turning it off falls back to the same path pre-`tool` activities take.
-  richToolCallRows: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -316,6 +305,19 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
   ),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+
+  // Fork-only settings, grouped at the tail so upstream additions above merge
+  // cleanly. All presentation only.
+  // Render tool calls as `Read(src/foo.ts)` with inline diffs for edits instead
+  // of one generic row. The server always emits the underlying `payload.tool`,
+  // so toggling takes effect without a reconnect and turning it off falls back
+  // to the same path pre-`tool` activities take.
+  richToolCallRows: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // Show every tool call in the timeline (no "+N previous" collapsing, running
+  // calls included). File-change bodies stay open permanently; command and
+  // other bodies open on a manual toggle only.
+  expandedToolCalls: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_WIDTH))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -984,8 +986,6 @@ export const ClientSettingsPatch = Schema.Struct({
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
-  expandedToolCalls: Schema.optionalKey(Schema.Boolean),
-  chatWidth: Schema.optionalKey(ChatWidth),
   glassOpacity: Schema.optionalKey(GlassOpacity),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),
@@ -1021,7 +1021,6 @@ export const ClientSettingsPatch = Schema.Struct({
   contextWindowMeterEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
-  richToolCallRows: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
@@ -1031,5 +1030,9 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   wordWrap: Schema.optionalKey(Schema.Boolean),
+  // Fork-only settings; see ClientSettingsSchema.
+  richToolCallRows: Schema.optionalKey(Schema.Boolean),
+  expandedToolCalls: Schema.optionalKey(Schema.Boolean),
+  chatWidth: Schema.optionalKey(ChatWidth),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

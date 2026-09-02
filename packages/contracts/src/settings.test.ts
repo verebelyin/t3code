@@ -67,26 +67,6 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
-describe("ClientSettings detailed tool call rows", () => {
-  it("defaults detailed tool call rows on", () => {
-    expect(decodeClientSettings({}).richToolCallRows).toBe(true);
-  });
-
-  it("round-trips an explicit opt-out", () => {
-    expect(decodeClientSettings({ richToolCallRows: false }).richToolCallRows).toBe(false);
-  });
-});
-
-describe("ClientSettings expanded tool calls", () => {
-  it("defaults expanded tool calls on", () => {
-    expect(decodeClientSettings({}).expandedToolCalls).toBe(true);
-  });
-
-  it("round-trips an explicit opt-out", () => {
-    expect(decodeClientSettings({ expandedToolCalls: false }).expandedToolCalls).toBe(false);
-  });
-});
-
 describe("ClientSettings quit confirmation", () => {
   it("defaults to hold", () => {
     expect(decodeClientSettings({}).confirmQuit).toBe("hold");
