@@ -81,8 +81,8 @@ describe("deriveMessagesTimelineRows expand-all", () => {
       expandAllToolCalls: true,
       isWorking: true,
       activeTurnStartedAt: null,
-      turnDiffSummaryByAssistantMessageId: new Map(),
-      revertTurnCountByUserMessageId: new Map(),
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
     });
 
     expect(rows.filter((row) => row.kind === "work").map((row) => row.id)).toEqual([

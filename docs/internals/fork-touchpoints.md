@@ -1,7 +1,9 @@
 # Fork touchpoints
 
-This fork carries rich tool-call rows, expanded tool calls, chat width, and
-account rate-limit meters on top of upstream `pingdotgg/t3code`. To keep
+This fork carries rich tool-call rows, expanded tool calls, and chat width on
+top of upstream `pingdotgg/t3code`. The fork's account rate-limit meter was
+dropped when upstream shipped its own usage limits (composer panel, Limits
+tab, `/usage-limits`). To keep
 `git merge origin/main` cheap, fork code follows two rules:
 
 1. **Fork logic lives in its own files.** Upstream files carry only the hook-in
@@ -21,7 +23,6 @@ commented block at the tail of the object.
   block, inline diffs, status indicator for tool rows.
 - `apps/web/src/components/settings/ForkAppearanceSettingsRows.tsx` — the
   three appearance settings rows.
-- `apps/web/src/components/chat/RateLimitMeter.tsx`, `apps/web/src/lib/rateLimits.ts`.
 - `apps/web/src/commandInvocationDisplay.ts`, `toolInvocationDisplay.ts`,
   `taskProgressDisplay.ts`.
 - `apps/server/src/provider/Layers/claudeToolInvocation.ts`,
@@ -36,12 +37,14 @@ hook-in.
 - `MessagesTimeline.tsx` — `PlainWorkEntryRow` reads `richToolCallRows` /
   `expandedToolCalls` from context and mounts the `ToolInvocationRow` pieces;
   `activeTurnInProgress` prop; `TIMELINE_MAINTAIN_SCROLL_AT_END_THRESHOLD`.
+  Its upstream test only hooks in the fork props (both off); rendered fork
+  behaviour is covered by `MessagesTimeline.toolInvocation.test.tsx`.
 - `MessagesTimeline.logic.ts` — `expandAllToolCalls` input, `toolCallPanelKind`.
 - `ChatView.tsx`, `ChatComposer.tsx` — settings reads, `activeTurnInProgress`,
-  rate-limit snapshot plumbing.
+  chat-width class.
 - `session-logic.ts` — `toolInvocation`, `taskMeta`, `exitCode` on work entries.
 - `packages/contracts/src/settings.ts`, `providerRuntime.ts`.
 - `ActivityPayloadProjection.ts`, `ProviderRuntimeIngestion.ts`,
-  `ClaudeAdapter.ts`, `CodexAdapter.ts` — `payload.tool` emission and
-  rate-limit activities. `ClaudeAdapter.ts` still carries a large inline block;
-  next candidate for extraction.
+  `ClaudeAdapter.ts`, `CodexAdapter.ts` — `payload.tool` emission, flat
+  Claude command projection, subagent tool registration. `ClaudeAdapter.ts`
+  still carries a large inline block; next candidate for extraction.
