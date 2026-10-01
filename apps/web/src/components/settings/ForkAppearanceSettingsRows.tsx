@@ -1,26 +1,11 @@
-import {
-  type ChatWidth,
-  DEFAULT_CHAT_WIDTH,
-  DEFAULT_UNIFIED_SETTINGS,
-} from "@t3tools/contracts/settings";
+import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { SettingResetButton, SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
-const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
-  default: "Default",
-  wide: "Wide",
-  full: "Full width",
-};
-
-function isChatWidth(value: string): value is ChatWidth {
-  return value in CHAT_WIDTH_LABELS;
-}
-
 /**
- * Fork-only appearance rows (chat width, detailed and expanded tool calls).
+ * Fork-only appearance rows (detailed and expanded tool calls).
  * Mounted at the tail of the upstream appearance section so changes to
  * SettingsPanels.tsx merge cleanly.
  */
@@ -30,40 +15,6 @@ export function ForkAppearanceSettingsRows() {
 
   return (
     <>
-      <SettingsRow
-        {...searchableSetting("chat-width")}
-        description="Max width of the centered chat column. Wide and full width fit more code and diff content on large screens."
-        resetAction={
-          settings.chatWidth !== DEFAULT_CHAT_WIDTH ? (
-            <SettingResetButton
-              label="chat width"
-              onClick={() => updateSettings({ chatWidth: DEFAULT_CHAT_WIDTH })}
-            />
-          ) : null
-        }
-        control={
-          <Select
-            value={settings.chatWidth}
-            onValueChange={(value) => {
-              if (typeof value === "string" && isChatWidth(value)) {
-                updateSettings({ chatWidth: value });
-              }
-            }}
-          >
-            <SelectTrigger className="w-full sm:w-40" aria-label="Chat width">
-              <SelectValue>{CHAT_WIDTH_LABELS[settings.chatWidth]}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="end" alignItemWithTrigger={false}>
-              {Object.entries(CHAT_WIDTH_LABELS).map(([value, label]) => (
-                <SelectItem hideIndicator key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        }
-      />
-
       <SettingsRow
         {...searchableSetting("tool-call-rows")}
         description="Name tool calls in the timeline, like Read(src/app.ts), and show an inline diff when a file changes. Off shows one generic row per tool call."

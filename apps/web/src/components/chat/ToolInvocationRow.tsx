@@ -84,7 +84,7 @@ export function toolInvocationDiffChanges(
 }
 
 const COMMAND_CODE_CLASS =
-  "min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/90 select-text";
+  "min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-foreground/90 select-text";
 
 /**
  * The command, highlighted as shell source by the same Shiki instance the diff
@@ -132,7 +132,7 @@ export function CommandInvocationBlock(props: {
     <div className="overflow-hidden rounded-md border border-border/50">
       <div className="flex items-start gap-2 bg-muted/50 px-2.5 py-2">
         <span
-          className="shrink-0 select-none font-mono text-[11px] leading-relaxed text-muted-foreground/50"
+          className="shrink-0 select-none font-mono text-2xs leading-relaxed text-muted-foreground/50"
           aria-hidden
         >
           $
@@ -143,7 +143,7 @@ export function CommandInvocationBlock(props: {
         {exitCode !== undefined ? (
           <span
             className={cn(
-              "shrink-0 select-none rounded-sm px-1 py-px font-mono text-[10px] leading-relaxed",
+              "shrink-0 select-none rounded-sm px-1 py-px font-mono text-3xs leading-relaxed",
               failed
                 ? "bg-destructive/12 text-destructive"
                 : "bg-foreground/6 text-muted-foreground/80",
@@ -155,17 +155,17 @@ export function CommandInvocationBlock(props: {
       </div>
       {output ? (
         <>
-          <pre className="max-h-64 cursor-text overflow-auto border-t border-border/40 px-2.5 py-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
+          <pre className="max-h-64 cursor-text overflow-auto border-t border-border/40 px-2.5 py-2 whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-muted-foreground select-text">
             {output}
           </pre>
           {outputTruncated ? (
-            <p className="border-t border-border/30 px-2.5 py-1 font-mono text-[10px] leading-relaxed text-muted-foreground/50">
+            <p className="border-t border-border/30 px-2.5 py-1 font-mono text-3xs leading-relaxed text-muted-foreground/50">
               Output truncated
             </p>
           ) : null}
         </>
       ) : (
-        <p className="border-t border-border/40 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground/45">
+        <p className="border-t border-border/40 px-2.5 py-1.5 font-mono text-2xs leading-relaxed text-muted-foreground/45">
           no output
         </p>
       )}

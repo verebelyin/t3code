@@ -26,10 +26,14 @@ import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstall
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { SnapShotCoordinator } from "../components/desktop/SnapShotCoordinator";
 import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAppActivationCoordinator";
+import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { ThreadNotificationCoordinator } from "../components/ThreadNotificationCoordinator";
+import { QueuedMessageSender } from "../components/QueuedMessageSender";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
+import { ChatGptWelcomeCoordinator } from "../components/settings/ChatGptWelcomeCoordinator";
+import { ProviderAuthCallbackCoordinator } from "../components/settings/ProviderAuthCallbackCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useDefaultThemeAdoption } from "../hooks/useDefaultTheme";
@@ -43,6 +47,7 @@ import {
   toastManager,
 } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
+import { isElectron } from "../env";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { useClientSettings } from "../hooks/useSettings";
@@ -173,6 +178,7 @@ function RootRouteView() {
           <EnvironmentThemeSync />
           <GlassAppearanceSync />
           <FontAppearanceSync />
+          <ProviderAuthCallbackCoordinator />
           <CustomSnoozeDialogHost />
           <CommandPalette>
             <AppSidebarLayout>
@@ -212,19 +218,22 @@ function RootRouteView() {
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />
         <GlassAppearanceSync />
-        <ChatWidthSync />
         <FontAppearanceSync />
+        <ProviderAuthCallbackCoordinator />
+        <ChatGptWelcomeCoordinator />
         <FirstRunGate
           enabled={primaryEnvironmentAuthenticated}
           hostedStatic={authGateState.status === "hosted-static"}
         >
           {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
           {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
+          {isElectron ? <RunningThreadKeepAlive /> : null}
           <RelayClientInstallDialog />
           <ConnectOnboardingDialog />
           <SshPasswordPromptDialog />
           <SnapShotCoordinator />
           <ThreadNotificationCoordinator />
+          <QueuedMessageSender />
           <ConfirmDialogHost />
           <CustomSnoozeDialogHost />
           <SlowRpcRequestToastCoordinator />
@@ -262,6 +271,11 @@ function ContrastAppearanceSync() {
     document.documentElement.dataset.diffColorScheme = diffColorScheme;
   }, [diffColorScheme]);
 
+  const chatWidth = useClientSettings((settings) => settings.chatWidth);
+  useEffect(() => {
+    document.documentElement.dataset.chatWidth = chatWidth;
+  }, [chatWidth]);
+
   useEffect(() => {
     applyAppearanceContrast(document.documentElement, appearanceContrast);
   }, [appearanceContrast]);
@@ -281,26 +295,6 @@ function GlassAppearanceSync() {
       style.removeProperty("--glass-blur");
     }
   }, [glassOpacity]);
-
-  return null;
-}
-
-/** default keeps the historical max-w-3xl; full still leaves gutter padding. */
-const CHAT_MAX_WIDTHS: Record<string, string> = {
-  default: "48rem",
-  wide: "64rem",
-  full: "100%",
-};
-
-function ChatWidthSync() {
-  const chatWidth = useClientSettings((settings) => settings.chatWidth);
-
-  useEffect(() => {
-    document.documentElement.style.setProperty(
-      "--chat-max-width",
-      CHAT_MAX_WIDTHS[chatWidth] ?? CHAT_MAX_WIDTHS.default!,
-    );
-  }, [chatWidth]);
 
   return null;
 }
