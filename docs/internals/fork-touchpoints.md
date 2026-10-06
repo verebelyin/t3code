@@ -25,7 +25,7 @@ commented block at the tail of the object.
   three appearance settings rows.
 - `apps/web/src/commandInvocationDisplay.ts`, `toolInvocationDisplay.ts`,
   `taskProgressDisplay.ts`.
-- `apps/server/src/provider/Layers/claudeToolInvocation.ts`,
+- `apps/server/src/provider/claudeToolInvocation.ts`,
   `codexToolInvocation.ts`, `apps/server/src/provider/unifiedHunk.ts`.
 - `packages/shared/src/toolInvocationLabel.ts`.
 
