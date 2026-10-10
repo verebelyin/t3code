@@ -7,6 +7,7 @@ import { resolveOfficialAcpRegistryIconUrl } from "@t3tools/contracts";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { AppText as Text } from "./AppText";
 import { getProviderClient } from "../lib/providerClients";
+import { CommandCodeIcon } from "./CommandCodeIcon";
 
 type ProviderIconProps = {
   readonly provider: string | null | undefined;
@@ -68,6 +69,10 @@ export function ProviderIcon(props: ProviderIconProps) {
   const isDarkMode = themeAppearance === "dark";
   const size = props.size ?? 16;
   const mono = isDarkMode ? "#e5e5e5" : "#171717";
+
+  if (props.provider === "commandcode") {
+    return <CommandCodeIcon size={size} color={mono} />;
+  }
 
   if (props.provider?.trim().toLowerCase() === "antigravity") {
     return (

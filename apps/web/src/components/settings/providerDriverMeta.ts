@@ -2,6 +2,7 @@ import {
   AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
+  CommandCodeSettings,
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
@@ -35,4 +36,11 @@ export const providerClients = makeProviderClientRegistry([
   museClient,
   piClient,
   acpRegistryClient,
+  {
+    driverKind: ProviderDriverKind.make("commandcode"),
+    label: "Command Code",
+    badgeLabel: "Early Access",
+    settingsSchema: CommandCodeSettings,
+    hasDefaultInstance: false,
+  },
 ]);
