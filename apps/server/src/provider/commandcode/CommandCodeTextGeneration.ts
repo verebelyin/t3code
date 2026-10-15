@@ -7,7 +7,7 @@ const unavailable = (operation: string) =>
   new TextGenerationError({
     operation,
     detail:
-      "Command Code text generation is unavailable: the installed ACP CLI does not expose a tool-free mode. Command Code plan mode can still allow native file tools before the mode switch; use another provider for commit, branch, title, or change request generation.",
+      "Command Code text generation is unavailable: the installed ACP CLI does not expose a tool-free mode. Command Code plan mode can still allow native file tools before the mode switch; use another provider for commit, branch, title, review guide, or change request generation.",
   });
 
 /**
@@ -24,5 +24,6 @@ export const makeCommandCodeTextGeneration = (): Effect.Effect<
     generatePrContent: () => fail("generatePrContent"),
     generateBranchName: () => fail("generateBranchName"),
     generateThreadTitle: () => fail("generateThreadTitle"),
+    generateReviewGuide: () => fail("generateReviewGuide"),
   });
 };
