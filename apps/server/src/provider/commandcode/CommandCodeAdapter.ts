@@ -65,7 +65,7 @@ export const withCommandCodeTurnGuards = Effect.fnUntraced(function* <R extends 
   const scope = yield* Effect.scope;
   const loopGuard = makeCommandCodeLoopGuard();
   let loopAbort: string | undefined;
-  const observe = (event: AcpSessionRuntime.AcpSessionRuntimeEvent) => {
+  const observe = Effect.fn("observe")((event: AcpSessionRuntime.AcpSessionRuntimeEvent) => {
     if (event._tag === "AvailableCommandsUpdated") {
       return input.onAvailableCommands?.(event.availableCommands) ?? Effect.void;
     }
@@ -75,27 +75,26 @@ export const withCommandCodeTurnGuards = Effect.fnUntraced(function* <R extends 
     loopAbort = reason;
     // Cancelling waits for the prompt, which is still delivering this event.
     return Effect.ignore(runtime.cancel).pipe(Effect.forkIn(scope), Effect.asVoid);
-  };
-  const prompt: Runtime["prompt"] = (payload, options) =>
-    Effect.gen(function* () {
-      loopGuard.reset();
-      loopAbort = undefined;
-      const [first] = payload.prompt;
-      const slashCommand = first?.type === "text" && first.text.trimStart().startsWith("/");
-      const modeState = yield* runtime.getModeState;
-      // Command Code reads a slash command only when it is the whole prompt,
-      // so the trailing T3 instruction block is dropped for those turns.
-      const blocks = slashCommand
-        ? payload.prompt.slice(0, payload.prompt.length > 1 ? -1 : undefined)
-        : modeState?.currentModeId === "plan"
-          ? payload.prompt
-          : [...payload.prompt, { type: "text" as const, text: COMMAND_CODE_PLAN_MODE_HINT }];
-      const result = yield* runtime.prompt({ ...payload, prompt: blocks }, options);
-      if (loopAbort !== undefined) {
-        return yield* EffectAcpErrors.AcpRequestError.internalError(loopAbort);
-      }
-      return result;
-    });
+  });
+  const prompt: Runtime["prompt"] = Effect.fn("prompt")(function* (payload, options) {
+    loopGuard.reset();
+    loopAbort = undefined;
+    const [first] = payload.prompt;
+    const slashCommand = first?.type === "text" && first.text.trimStart().startsWith("/");
+    const modeState = yield* runtime.getModeState;
+    // Command Code reads a slash command only when it is the whole prompt,
+    // so the trailing T3 instruction block is dropped for those turns.
+    const blocks = slashCommand
+      ? payload.prompt.slice(0, payload.prompt.length > 1 ? -1 : undefined)
+      : modeState?.currentModeId === "plan"
+        ? payload.prompt
+        : [...payload.prompt, { type: "text" as const, text: COMMAND_CODE_PLAN_MODE_HINT }];
+    const result = yield* runtime.prompt({ ...payload, prompt: blocks }, options);
+    if (loopAbort !== undefined) {
+      return yield* EffectAcpErrors.AcpRequestError.internalError(loopAbort);
+    }
+    return result;
+  });
   return {
     ...runtime,
     getEvents: () => runtime.getEvents().pipe(Stream.tap(observe)),
