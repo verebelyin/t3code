@@ -1,5 +1,4 @@
 import {
-  COMMAND_CODE_DRIVER_KIND,
   type CommandCodeSettings,
   type RuntimeMode,
   type ServerProviderModel,
@@ -286,5 +285,3 @@ export function commandCodeToolInvocation(toolCall: AcpToolCallState): ToolInvoc
     ...(exitCode !== undefined ? { exitCode } : {}),
   };
 }
-
-export { COMMAND_CODE_DRIVER_KIND };

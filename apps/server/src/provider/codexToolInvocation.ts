@@ -1,17 +1,11 @@
-/**
- * Builds a canonical {@link ToolInvocation} from a Codex thread item.
- *
- * Mirrors `claudeToolInvocation.ts`. Codex is the richer side of the pair: its
- * `fileChange` items already carry a real per-file unified diff, so this mostly
- * reshapes and caps rather than synthesizing one.
- *
- * Extracted from `CodexAdapter.ts` so the mapping is testable without standing
- * up the Effect session runtime. The item is accepted as a plain record rather
- * than a generated Codex schema type to keep this module dependency-free.
- *
- * @module provider/codexToolInvocation
- */
-import type { CanonicalItemType, ToolInvocation, ToolInvocationChange } from "@t3tools/contracts";
+// Builds a canonical ToolInvocation from a Codex thread item. Mirrors
+// claudeToolInvocation.ts, but Codex `fileChange` items already carry real diffs,
+// so this reshapes and caps rather than synthesizing.
+import type {
+  ToolInvocation,
+  ToolInvocationChange,
+  ToolLifecycleItemType,
+} from "@t3tools/contracts";
 
 const MAX_TARGET_CHARS = 200;
 const MAX_CHANGES = 8;
@@ -96,7 +90,7 @@ export interface BuildCodexToolInvocationOptions {
  * keep their existing generic rendering.
  */
 export function buildCodexToolInvocation(
-  itemType: CanonicalItemType,
+  itemType: ToolLifecycleItemType,
   item: Record<string, unknown>,
   options: BuildCodexToolInvocationOptions,
 ): ToolInvocation | undefined {

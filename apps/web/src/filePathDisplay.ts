@@ -1,3 +1,4 @@
+import { pipe } from "effect/Function";
 import {
   fileBasename,
   stripSlashPrefixedWindowsDrive,
@@ -18,15 +19,8 @@ function stripRelativePrefixes(path: string): string {
 }
 
 export interface FormatWorkspaceRelativePathOptions {
-  /**
-   * `"labelled"` (default) prefixes the workspace directory name, e.g.
-   * `t3code/src/foo.ts` — useful when a row could refer to more than one
-   * workspace.
-   *
-   * `"bare"` returns just the relative suffix, e.g. `src/foo.ts`. Used by tool
-   * rows, where the workspace is already implied by the surrounding thread and
-   * the prefix is pure noise inside `Read(...)`.
-   */
+  // `"labelled"` (default) prefixes the workspace dir (`t3code/src/foo.ts`);
+  // `"bare"` drops it (`src/foo.ts`) for tool rows, where the workspace is implied.
   readonly style?: "labelled" | "bare";
 }
 
@@ -41,8 +35,10 @@ export function formatWorkspaceRelativePath(
 
   let displayPath = normalizedPath;
   if (workspaceRoot) {
-    const normalizedWorkspaceRoot = stripSlashPrefixedWindowsDrive(
-      normalizePathSeparators(trimTrailingPathSeparators(workspaceRoot)),
+    const normalizedWorkspaceRoot = pipe(
+      trimTrailingPathSeparators(workspaceRoot),
+      normalizePathSeparators,
+      stripSlashPrefixedWindowsDrive,
     );
     const workspaceLabel = fileBasename(normalizedWorkspaceRoot);
     const caseInsensitive = isWindowsAbsolutePath(stripSlashPrefixedWindowsDrive(workspaceRoot));

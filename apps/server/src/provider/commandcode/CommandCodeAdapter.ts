@@ -30,7 +30,7 @@ import {
   normalizeCommandCodeToolCall,
 } from "./CommandCodeProtocol.ts";
 
-export const COMMAND_CODE_PROVIDER = ProviderDriverKind.make(COMMAND_CODE_DRIVER_KIND);
+const COMMAND_CODE_PROVIDER = ProviderDriverKind.make(COMMAND_CODE_DRIVER_KIND);
 
 const CommandCodeProviderCapabilitiesV2 = {
   ...AcpProviderCapabilitiesV2,
@@ -120,9 +120,7 @@ export interface CommandCodeAdapterV2Options {
   ) => Effect.Effect<void>;
 }
 
-export function makeCommandCodeAcpAdapterFlavor(
-  options: CommandCodeAdapterV2Options,
-): AcpAdapterV2Flavor {
+function makeCommandCodeAcpAdapterFlavor(options: CommandCodeAdapterV2Options): AcpAdapterV2Flavor {
   return {
     driver: COMMAND_CODE_PROVIDER,
     runtimeHarness: "CommandCode",
