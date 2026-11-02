@@ -95,6 +95,7 @@ import {
   THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./threadDetailsPanelStyles";
+import { formatSubagentTokens } from "./subagentModelTraits";
 
 const THREAD_LINEAGE_INITIAL_COUNT = 6;
 const THREAD_LINEAGE_PAGE_COUNT = 12;
@@ -378,6 +379,9 @@ function DelegatedFromRow(props: {
   );
 }
 
+// Fork: a settled agent's trailing slot shows the tokens it spent.
+const SETTLED_TOKEN_STATUSES = new Set(["completed", "cancelled", "interrupted"]);
+
 export function ThreadRelationshipsPanel(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -458,6 +462,8 @@ export function ThreadRelationshipsPanel(props: {
           providerInstanceId: subagent.providerInstanceId,
           origin: subagent.origin,
           modelSelection: subagent.modelSelection,
+          // Fork: tokens spent, shown once the task settles.
+          tokenUsage: subagent.usage,
         },
       ]),
   );
@@ -714,6 +720,7 @@ export function ThreadRelationshipsPanel(props: {
         status={agent.status}
         result={agent.result}
         progress={agent.progress}
+        usage={agent.tokenUsage}
         parentThread={currentThread ?? undefined}
         childThread={node?.thread ?? undefined}
         parentProject={currentProject}
@@ -739,7 +746,14 @@ export function ThreadRelationshipsPanel(props: {
         {agent ? null : (
           <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
         )}
-        {agent && !failed && (deriveSubagentElapsedMs(agent, 0) !== null || canStopWorkflow) ? (
+        {/* Fork: one trailing item keeps room for the title; a settled agent shows tokens. */}
+        {agent?.tokenUsage && !failed && SETTLED_TOKEN_STATUSES.has(agent.status) ? (
+          <span
+            className={`shrink-0 text-2xs font-normal tabular-nums text-muted-foreground ${trailingVisibilityClass}`}
+          >
+            {formatSubagentTokens(agent.tokenUsage)}
+          </span>
+        ) : agent && !failed && (deriveSubagentElapsedMs(agent, 0) !== null || canStopWorkflow) ? (
           <span
             className={`shrink-0 text-2xs font-normal tabular-nums text-muted-foreground ${canStopWorkflow ? "min-w-6 text-end" : ""} ${trailingVisibilityClass}`}
           >

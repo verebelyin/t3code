@@ -114,6 +114,7 @@ import {
   type RunId,
   type ThreadId,
   resolveIdleCompaction,
+  type SubagentTokenUsage,
 } from "@t3tools/contracts";
 
 import { FILE_HEADERS_ONLY, formatPatch, structuredPatch } from "diff";
@@ -216,6 +217,7 @@ import {
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
+import { claudeTaskTokenUsage, optionalUsage } from "../subagentTokenUsage.ts";
 
 export const CLAUDE_PROVIDER = ProviderDriverKind.make("claudeAgent");
 const CLAUDE_AGENT_SDK_QUERY_PROTOCOL = "claude-agent-sdk.query" as const;
@@ -6351,6 +6353,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           readonly workflowName?: string;
           readonly workflowRunHandles?: OrchestrationV2WorkflowRunHandles;
           readonly result?: string;
+          // Fork: tokens the task has spent so far, see subagentTokenUsage.ts.
+          readonly usage?: SubagentTokenUsage;
           readonly status: Extract<
             OrchestrationV2ExecutionNode["status"],
             "running" | "completed" | "failed" | "cancelled"
@@ -6475,6 +6479,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               : {}),
             ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
             ...(input.title === undefined ? {} : { title: input.title }),
+            ...(input.usage === undefined ? {} : { usage: input.usage }),
             model,
             ...(existingSubagent === undefined || existingSubagent.task.modelSelection !== undefined
               ? {
@@ -9066,6 +9071,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 ...(message.tool_use_id === undefined ? {} : { toolUseId: message.tool_use_id }),
                 ...(progress.length === 0 ? {} : { progress }),
                 workflowFrame: message,
+                ...optionalUsage(claudeTaskTokenUsage(message.usage)),
                 status: "running",
               });
             }
@@ -9129,6 +9135,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 workflowFrame: message,
                 nativeOutcome: message,
                 result: message.summary,
+                ...optionalUsage(claudeTaskTokenUsage(message.usage)),
                 status:
                   message.status === "completed"
                     ? "completed"

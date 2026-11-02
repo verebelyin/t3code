@@ -8,7 +8,6 @@ import {
 
 import { ProviderDriverKind } from "@t3tools/contracts";
 import { AntigravityIcon, ClaudeAI, Icon, OpenAI } from "../Icons";
-import { CommandCodeIcon } from "../icons/CommandCodeIcon";
 
 import { cn } from "~/lib/utils";
 import { providerClients } from "../settings/providerDriverMeta";
@@ -23,7 +22,6 @@ const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>> = {
   [ProviderDriverKind.make("codex")]: OpenAI,
   [ProviderDriverKind.make("claudeAgent")]: ClaudeAI,
   [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
-  [ProviderDriverKind.make("commandcode")]: CommandCodeIcon,
 };
 
 const PROVIDER_TEXT_COLOR_BY_PROVIDER: Partial<Record<ProviderDriverKind, string>> = {

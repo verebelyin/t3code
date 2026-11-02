@@ -16,6 +16,7 @@ import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
+import { RateLimitMeter } from "./RateLimitMeter";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { runtimeModeConfig } from "./runtimeModeConfig";
@@ -249,6 +250,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  activeRateLimits: ComponentProps<typeof RateLimitMeter>["limits"];
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -287,6 +289,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
+      <RateLimitMeter limits={props.activeRateLimits} />
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}

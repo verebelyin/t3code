@@ -1,6 +1,7 @@
 import { OrchestrationMessageContext } from "./composerContext.ts";
 import { withRecordIdTable } from "./orchestrationV2IdTable.ts";
 import * as DateTime from "effect/DateTime";
+import { SubagentTokenUsage } from "./subagentTokenUsage.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaAST from "effect/SchemaAST";
@@ -917,6 +918,8 @@ export const OrchestrationV2Subagent = Schema.Struct({
   /** Same as this subagent's previous record on this stream: its snapshot or `subagent.updated`. */
   promptOmitted: DedupedBodyMarker,
   resultOmitted: DedupedBodyMarker,
+  // Fork: tokens spent, see subagentTokenUsage.ts.
+  usage: Schema.optional(SubagentTokenUsage),
 });
 export type OrchestrationV2Subagent = typeof OrchestrationV2Subagent.Type;
 

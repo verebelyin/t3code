@@ -191,6 +191,7 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
+import { rollUpSubagentTokenUsage } from "./subagentTokenUsage.ts";
 
 const isMessageQuestionAnswer = Schema.is(
   Schema.Union([TrimmedNonEmptyString, Schema.NonEmptyArray(TrimmedNonEmptyString)]),
@@ -7712,6 +7713,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         prompt: command.task,
         title: command.title ?? null,
         model: command.modelSelection.model,
+        // Fork: keep effort and speed on the task, not only on the child thread.
+        modelSelection: command.modelSelection,
         ...(command.completionWake === undefined ? {} : { completionWake: command.completionWake }),
         status: "running",
         result: null,
@@ -12471,6 +12474,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const parentTurnItem = parentProjection.turnItems.find(
         (candidate) => candidate.type === "subagent" && candidate.subagentId === task.id,
       );
+      // Fork: tokens the child spent, see subagentTokenUsage.ts.
+      const usage = rollUpSubagentTokenUsage({
+        runId: childRun.id,
+        providerThreadId: childRun.providerThreadId,
+        attempts: childControls.attempts,
+        providerTurns: childControls.providerTurns,
+        providerThreads: childControls.providerThreads,
+      });
       const updatedTask: OrchestrationV2Subagent = {
         ...task,
         providerThreadId: childRun.providerThreadId,
@@ -12478,6 +12489,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         result: result.text,
         completedAt: now,
         updatedAt: now,
+        ...(usage === undefined ? {} : { usage }),
       };
       const completionPlan = yield* planDelegatedCompletionDelivery({
         parentProjection,

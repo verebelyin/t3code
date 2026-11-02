@@ -63,6 +63,7 @@ import { TimelineSystemDivider } from "./TimelineSystemDivider";
 import { subagentResumedSince } from "./V2LifecycleRow.logic";
 import { Button, InlineButton } from "../ui/button";
 import { T3Wordmark } from "../T3Wordmark";
+import { SubagentModelTraitsLabel } from "./SubagentModelTraitsLabel";
 
 export type { HandoffTimelineRun } from "@t3tools/client-runtime/handoff";
 
@@ -466,6 +467,14 @@ function SubagentTimelineLink(props: {
           {remote !== undefined ? (
             <span className="shrink-0 text-xs text-muted-foreground">on {remote.label}</span>
           ) : null}
+          <SubagentModelTraitsLabel
+            environmentId={props.parentRef.environmentId}
+            childThreadId={threadId}
+            model={agent?.model ?? null}
+            modelSelection={agent?.modelSelection}
+            origin={props.origin}
+            providerInstanceId={props.providerInstanceId}
+          />
         </span>
         <span
           className={cn(
@@ -537,6 +546,7 @@ function SubagentTimelineLink(props: {
           status={liveStatus}
           result={agent?.result ?? props.result}
           progress={agent?.progress ?? props.progress}
+          usage={agent?.usage}
         />
       </ThreadHoverCardPopup>
     </Tooltip>
@@ -548,6 +558,7 @@ function SubagentTimelineTooltip(
     model: string | null;
     modelSelection: OrchestrationV2Subagent["modelSelection"];
     elapsed: ReactNode;
+    usage: OrchestrationV2Subagent["usage"];
   },
 ) {
   const environmentId = props.parentRef.environmentId;
@@ -576,6 +587,7 @@ function SubagentTimelineTooltip(
       status={props.status}
       result={props.result}
       progress={props.progress}
+      usage={props.usage}
       parentThread={parent}
       childThread={child}
       parentProject={parentProject ?? undefined}

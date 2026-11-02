@@ -230,6 +230,13 @@ you had typed in the composer before starting the edit is restored afterwards. I
 message starts or is removed while you are editing, the edit ends: changed content moves into the
 composer when it is empty, and is discarded otherwise.
 
+## Usage limits
+
+When the selected provider reports 5-hour and weekly limits, the composer footer shows each
+window's percent used and time until it resets. Green means under half used, amber from 50%, red
+above 90%. For every window, pace, and reset time, turn on **Usage limits** in the thread details
+card.
+
 ## Commands and skills
 
 Type `/` for commands or `$` to add a skill from the selected environment and

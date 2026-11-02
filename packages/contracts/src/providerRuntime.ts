@@ -85,50 +85,6 @@ export const TurnTokenUsage = Schema.Union([
 ]);
 export type TurnTokenUsage = typeof TurnTokenUsage.Type;
 
-export const ToolInvocationTargetKind = Schema.Literals([
-  "path",
-  "pattern",
-  "command",
-  "agent",
-  "url",
-  "text",
-]);
-export type ToolInvocationTargetKind = typeof ToolInvocationTargetKind.Type;
-
-export const ToolInvocationChangeKind = Schema.Literals(["add", "update", "delete"]);
-export type ToolInvocationChangeKind = typeof ToolInvocationChangeKind.Type;
-
-export const ToolInvocationChange = Schema.Struct({
-  path: TrimmedNonEmptyStringSchema,
-  kind: Schema.optional(ToolInvocationChangeKind),
-  // Hunk body only (`@@` + lines, no file headers) so Claude's synthesized and
-  // Codex's stripped diffs share one shape. Clients re-add headers for parsing.
-  // Capped by the emitting adapter; see `diffTruncated`.
-  diff: Schema.optional(Schema.String),
-  diffTruncated: Schema.optional(Schema.Boolean),
-});
-export type ToolInvocationChange = typeof ToolInvocationChange.Type;
-
-// Provider-agnostic tool call, rendered as `Read(src/foo.ts)`. A sibling of
-// `data`, not inside it: the WS projection rewrites only `payload.data` and
-// spreads the rest through, so this reaches clients with no allowlist change.
-export const ToolInvocation = Schema.Struct({
-  /** Provider-native tool name, e.g. `Read`, `Edit`, `Bash`, `Task`. */
-  name: TrimmedNonEmptyStringSchema,
-  /** The value rendered in parentheses: a path, pattern, command, agent, or URL. */
-  target: Schema.optional(TrimmedNonEmptyStringSchema),
-  targetKind: Schema.optional(ToolInvocationTargetKind),
-  changes: Schema.optional(Schema.Array(ToolInvocationChange)),
-  // Command stdout/stderr. The activity projection reduces raw output to one
-  // line, so this is the only way a row can show it. Capped hard by the
-  // emitting adapter; see `outputTruncated`.
-  output: Schema.optional(Schema.String),
-  outputTruncated: Schema.optional(Schema.Boolean),
-  /** Exit status, for providers that report one. Absent is "unknown", not zero. */
-  exitCode: Schema.optional(Schema.Int),
-});
-export type ToolInvocation = typeof ToolInvocation.Type;
-
 export const ToolActivitySurface = Schema.Literals(["browser", "computer"]);
 export type ToolActivitySurface = typeof ToolActivitySurface.Type;
 

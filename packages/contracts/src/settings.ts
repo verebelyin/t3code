@@ -357,17 +357,7 @@ export const ClientSettingsSchema = Schema.Struct({
   diffColorScheme: DiffColorScheme.pipe(
     Schema.withDecodingDefault(Effect.succeed("red-green" as const)),
   ),
-  // Fork: also accepts "default", stored by older fork builds, as "comfortable".
-  chatWidth: Schema.Literals([...ChatWidth.literals, "default"]).pipe(
-    Schema.decodeTo(
-      ChatWidth,
-      SchemaTransformation.transform({
-        decode: (width) => (width === "default" ? "comfortable" : width),
-        encode: (width) => width,
-      }),
-    ),
-    Schema.withDecodingDefault(Effect.succeed("comfortable" as const)),
-  ),
+  chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
   effortDisplay: EffortDisplay.pipe(Schema.withDecodingDefault(Effect.succeed("label" as const))),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -533,14 +523,6 @@ export const ClientSettingsSchema = Schema.Struct({
   // Opt-in TeX typesetting in rendered Markdown. Off keeps math parsing and
   // KaTeX out of the render path entirely.
   mathRenderingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  // Fork-only settings, grouped at the tail so upstream additions merge cleanly.
-  // Render tool calls as `Read(src/foo.ts)` with inline edit diffs. The server
-  // always emits `payload.tool`, so toggling needs no reconnect.
-  richToolCallRows: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // Show every tool call in the timeline (no "+N previous" collapsing, running
-  // calls included). File-change bodies stay open permanently; command and
-  // other bodies open on a manual toggle only.
-  expandedToolCalls: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1851,8 +1833,5 @@ export const ClientSettingsPatch = Schema.Struct({
   snapShotAnimations: Schema.optionalKey(Schema.Boolean),
   wordWrap: Schema.optionalKey(Schema.Boolean),
   mathRenderingEnabled: Schema.optionalKey(Schema.Boolean),
-  // Fork-only settings; see ClientSettingsSchema.
-  richToolCallRows: Schema.optionalKey(Schema.Boolean),
-  expandedToolCalls: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

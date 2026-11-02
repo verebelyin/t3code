@@ -82,11 +82,10 @@ export const withCommandCodeTurnGuards = Effect.fnUntraced(function* <R extends 
     const [first] = payload.prompt;
     const slashCommand = first?.type === "text" && first.text.trimStart().startsWith("/");
     const modeState = yield* runtime.getModeState;
-    // Command Code reads a slash command only when it is the whole prompt,
-    // so the trailing T3 instruction block is dropped for those turns.
-    const blocks = slashCommand
-      ? payload.prompt.slice(0, payload.prompt.length > 1 ? -1 : undefined)
-      : modeState?.currentModeId === "plan"
+    // Command Code reads a slash command only when it leads the prompt; the
+    // shared ACP adapter already omits its instruction block for those turns.
+    const blocks =
+      slashCommand || modeState?.currentModeId === "plan"
         ? payload.prompt
         : [...payload.prompt, { type: "text" as const, text: COMMAND_CODE_PLAN_MODE_HINT }];
     const result = yield* runtime.prompt({ ...payload, prompt: blocks }, options);

@@ -3,6 +3,7 @@ import {
   COMMAND_CODE_DRIVER_KIND,
   CommandCodeSettings,
   ProviderDriverKind,
+  TextGenerationError,
   type ServerProvider,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
@@ -45,13 +46,14 @@ import {
   parseGenericCliVersion,
   spawnAndCollect,
 } from "@t3tools/provider-core/server/snapshotProbe";
+import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import {
   commandCodeModels,
   makeCommandCodeAcpRuntime,
   type CommandCodeAcpRuntimeInput,
 } from "./CommandCodeAcpSupport.ts";
 import { makeCommandCodeAdapterV2 } from "./CommandCodeAdapter.ts";
-import { makeCommandCodeTextGeneration } from "./CommandCodeTextGeneration.ts";
+import { commandCodeUsageReader } from "./CommandCodeUsage.ts";
 
 const DRIVER = ProviderDriverKind.make(COMMAND_CODE_DRIVER_KIND);
 const MINIMUM_VERSION = "1.74.0";
@@ -62,6 +64,25 @@ const PRESENTATION = {
   reportsContextWindow: true,
   supportsConversationRollback: false,
 };
+// ACP creates the native harness before T3 can switch it to plan mode, and the
+// CLI allows file tools there, so there is no tool-free session to generate in.
+const unsupportedTextGeneration: ProviderTextGeneration = (() => {
+  const unsupported = (operation: string) =>
+    Effect.fail(
+      new TextGenerationError({
+        operation,
+        detail:
+          "Command Code text generation is unavailable: its ACP CLI has no tool-free mode. Use another provider for commit, branch, title, review guide, or change request generation.",
+      }),
+    );
+  return {
+    generateCommitMessage: () => unsupported("generateCommitMessage"),
+    generatePrContent: () => unsupported("generatePrContent"),
+    generateBranchName: () => unsupported("generateBranchName"),
+    generateThreadTitle: () => unsupported("generateThreadTitle"),
+    generateReviewGuide: () => unsupported("generateReviewGuide"),
+  };
+})();
 const UPDATE = makePackageManagedProviderMaintenanceResolver({
   provider: DRIVER,
   npmPackageName: "command-code",
@@ -110,7 +131,11 @@ export type CommandCodeDriverEnv =
   | ProviderEventLoggers
   | ProviderHost.ProviderHost;
 
-export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeDriverEnv> = {
+export const CommandCodeDriver: ProviderDriver<
+  CommandCodeSettings,
+  CommandCodeDriverEnv,
+  Path.Path
+> = {
   driverKind: DRIVER,
   metadata: {
     displayName: "Command Code",
@@ -118,6 +143,7 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
     hasDefaultInstance: false,
   },
   configSchema: CommandCodeSettings,
+  usage: commandCodeUsageReader,
   defaultConfig: () => decodeSettings({}),
   create: Effect.fn("CommandCodeDriver.create")(function* (input) {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -357,7 +383,6 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
           }),
         ),
     });
-    const textGeneration = yield* makeCommandCodeTextGeneration();
     return {
       instanceId: input.instanceId,
       driverKind: DRIVER,
@@ -366,7 +391,7 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
       accentColor: input.accentColor,
       enabled: input.enabled,
       orchestrationAdapter,
-      textGeneration,
+      textGeneration: unsupportedTextGeneration,
       snapshot: {
         getSnapshot: SubscriptionRef.get(snapshots),
         refresh,

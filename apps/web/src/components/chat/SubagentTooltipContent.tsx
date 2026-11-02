@@ -16,6 +16,10 @@ import { getModelSelectionStringOptionValue, resolveSelectableModel } from "@t3t
 import { getTraitsSpeedDisplay, TraitsSpeedIcon } from "./TraitsSpeed";
 import type { ReactNode } from "react";
 import {
+  SubagentTokenUsageLine,
+  type SubagentTokenUsageLineProps,
+} from "./SubagentModelTraitsLabel";
+import {
   BotIcon,
   CheckIcon,
   CircleDashedIcon,
@@ -49,6 +53,7 @@ export function SubagentTooltipContent(props: {
   status: OrchestrationV2TurnItemStatus;
   result?: string | null | undefined;
   progress?: string | null | undefined;
+  usage?: SubagentTokenUsageLineProps["usage"];
 }) {
   const { modelLabel, workspace: metadata } = resolveSubagentMetadata(props);
   const preview = subagentDetailPreview(props);
@@ -168,6 +173,7 @@ export function SubagentTooltipContent(props: {
         </span>
         {props.elapsed}
       </div>
+      <SubagentTokenUsageLine usage={props.usage} />
       {metadata.map(({ label, value }) => {
         const Icon = label === "Branch" ? GitBranchIcon : FolderIcon;
         return (

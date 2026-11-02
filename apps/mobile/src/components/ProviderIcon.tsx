@@ -12,7 +12,6 @@ import { useAppearancePreferences } from "../features/settings/appearance/Appear
 import { AppText as Text } from "./ui/AppText";
 import { cn } from "../lib/cn";
 import { getProviderClient } from "@t3tools/client-runtime/provider-clients";
-import { CommandCodeIcon } from "./CommandCodeIcon";
 
 type ProviderIconProps = {
   readonly provider: string | null | undefined;
@@ -75,10 +74,6 @@ export function ProviderIcon(props: ProviderIconProps) {
   const gradientId = useId();
   const size = props.size ?? 16;
   const mono = isDarkMode ? "#e5e5e5" : "#171717";
-
-  if (props.provider === "commandcode") {
-    return <CommandCodeIcon size={size} color={mono} />;
-  }
 
   if (props.provider?.trim().toLowerCase() === "antigravity") {
     return (

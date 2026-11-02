@@ -14,7 +14,7 @@ import * as AcpWireSchema from "effect-acp/schema-v1";
 import type { AcpToolCallState } from "@t3tools/provider-acp/server/runtimeModel";
 
 const TOOL_TEXT_LIMIT = 8_000;
-export const COMMAND_CODE_TOOL_TEXT_TRUNCATED = "[Earlier output truncated]\n\n";
+const COMMAND_CODE_TOOL_TEXT_TRUNCATED = "[Earlier output truncated]\n\n";
 const QUESTION_LABEL_LIMIT = 512;
 
 const NativeToolFields = Schema.Struct({

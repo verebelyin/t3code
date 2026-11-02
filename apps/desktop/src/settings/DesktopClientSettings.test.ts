@@ -27,7 +27,6 @@ const clientSettings: ClientSettings = {
   browserRecordingFrameRate: 60,
   browserLinkTarget: "app",
   browserAutoShowFloatingPreview: false,
-  chatWidth: "default",
   browserProfiles: [{ id: "work", name: "Work", kind: "persistent" }],
   browserDefaultProfileId: "work",
   confirmQuit: "double-click",
@@ -39,7 +38,6 @@ const clientSettings: ClientSettings = {
   diffIgnoreWhitespace: true,
   diffLayout: "stacked",
   environmentIdentificationMode: "artwork",
-  expandedToolCalls: true,
   favorites: [],
   fontFamilyCode: "",
   fontFamilyComposer: "",
@@ -58,7 +56,6 @@ const clientSettings: ClientSettings = {
   showSkillsInSlashMenu: false,
   persistComposerContextStrip: true,
   providerModelPreferences: {},
-  richToolCallRows: true,
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {
     "environment-1:/tmp/project-a": "separate",

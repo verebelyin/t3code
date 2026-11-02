@@ -2,6 +2,7 @@ import { WorkLogBlock } from "./WorkLog";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useAtomValue } from "@effect/atom-react";
 import { environmentThreadDetails } from "../../state/threads";
+import { serverEnvironment } from "../../state/server";
 import {
   subagentGroupSummary,
   summarizeSubagentStatuses,
@@ -15,6 +16,7 @@ import { LinkRequestCard } from "./LinkRequestCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { TimelineRowCtx, type TimelineRow } from "./timelineRowContext";
 import { subagentGroupTiming } from "./TimelineV2EventRow.logic";
+import { summarizeSubagentModels } from "./subagentModelTraits";
 
 export function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event" }> }) {
   const ctx = use(TimelineRowCtx);
@@ -70,6 +72,10 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
     ),
     (thread) => thread?.projection.subagents,
   );
+  // Fork: resolves model labels and default effort for the group header.
+  const providers = useAtomValue(
+    serverEnvironment.providersValueAtom(ctx.activeThreadEnvironmentId),
+  );
   const agents = members.map((item) => {
     const live = liveAgents?.find((agent) => agent.id === item.subagentId);
     return {
@@ -81,6 +87,19 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
   });
   const summary = subagentGroupSummary(agents);
   const label = `${members.length} ${members.length === 1 ? "subagent" : "subagents"}`;
+  // Fork: which model and effort the group ran with.
+  const modelSummary = summarizeSubagentModels(
+    members.map((item) => {
+      const live = liveAgents?.find((agent) => agent.id === item.subagentId);
+      return {
+        model: live?.model ?? null,
+        modelSelection: live?.modelSelection,
+        origin: item.origin,
+        providerInstanceId: item.providerInstanceId,
+        provider: providers?.find((provider) => provider.instanceId === item.providerInstanceId),
+      };
+    }),
+  );
   const statusSummary = summarizeSubagentStatuses(agents.map(({ status }) => status));
   const toggleExpanded = (open: boolean) => {
     ctx.onToggleWorkEntry(row.id, expanded);
@@ -120,7 +139,12 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
             ) : null}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-xs font-semibold">{label}</span>
+            <span className="block truncate text-xs font-semibold">
+              {label}
+              {modelSummary ? (
+                <span className="font-normal text-muted-foreground"> · {modelSummary}</span>
+              ) : null}
+            </span>
             <span
               className={cn(
                 "block truncate text-3xs text-muted-foreground",

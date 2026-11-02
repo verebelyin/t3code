@@ -92,13 +92,14 @@ describe("withCommandCodeTurnGuards", () => {
     }),
   );
 
-  it.effect("sends a slash command without the trailing instruction block", () =>
+  it.effect("sends a slash command with its attachments and without the plan hint", () =>
     Effect.gen(function* () {
       const fake = makeFakeRuntime("default");
+      const image = { type: "image", data: "aGk=", mimeType: "image/png" } as const;
       yield* (yield* withCommandCodeTurnGuards(fake.runtime, {})).prompt({
-        prompt: [text("/compact"), text("runtime instructions")],
+        prompt: [text("/review"), image],
       });
-      expect(fake.sent[0]).toEqual([text("/compact")]);
+      expect(fake.sent[0]).toEqual([text("/review"), image]);
     }),
   );
 });

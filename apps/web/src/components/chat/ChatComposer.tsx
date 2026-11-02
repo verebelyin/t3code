@@ -3507,6 +3507,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
+                    activeRateLimits={selectedProviderEntry?.snapshot.usageLimits}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}
