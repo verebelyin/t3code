@@ -6,7 +6,7 @@ import {
   type ProviderInstanceId,
 } from "@t3tools/contracts";
 import type { SelfInvocation } from "@t3tools/shared/nodeRuntime";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -106,7 +106,7 @@ export interface CommandCodeAdapterV2Options {
   readonly settings: CommandCodeSettings;
   readonly environment: NodeJS.ProcessEnv;
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
-  readonly crypto: Crypto.Crypto;
+  readonly secureRandom: SecureRandom.SecureRandom["Service"];
   readonly selfInvocation: SelfInvocation;
   readonly nativeLogging?: Parameters<typeof makeAcpAdapterV2>[0]["nativeLogging"];
   readonly continuationRequests?: Parameters<typeof makeAcpAdapterV2>[0]["continuationRequests"];
@@ -139,7 +139,7 @@ function makeCommandCodeAcpAdapterFlavor(options: CommandCodeAdapterV2Options): 
               options.onAvailableCommands?.(commands, input.cwd) ?? Effect.void,
           }),
         ),
-        Effect.provideService(Crypto.Crypto, options.crypto),
+        Effect.provideService(SecureRandom.SecureRandom, options.secureRandom),
       ),
     sessionModeForPolicy: (policy) => commandCodePermissionMode(policy.runtimeMode),
     onSessionConfigurationUpdate: (configOptions) =>

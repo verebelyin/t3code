@@ -7,7 +7,7 @@ import {
   type ServerProvider,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -80,6 +80,7 @@ const unsupportedTextGeneration: ProviderTextGeneration = (() => {
     generatePrContent: () => unsupported("generatePrContent"),
     generateBranchName: () => unsupported("generateBranchName"),
     generateThreadTitle: () => unsupported("generateThreadTitle"),
+    generateTranscriptionPostProcessing: () => unsupported("generateTranscriptionPostProcessing"),
     generateReviewGuide: () => unsupported("generateReviewGuide"),
   };
 })();
@@ -123,7 +124,7 @@ function slashCommands(
 
 export type CommandCodeDriverEnv =
   | ChildProcessSpawner.ChildProcessSpawner
-  | Crypto.Crypto
+  | SecureRandom.SecureRandom
   | FileSystem.FileSystem
   | IdAllocatorV2
   | Path.Path
@@ -147,7 +148,7 @@ export const CommandCodeDriver: ProviderDriver<
   defaultConfig: () => decodeSettings({}),
   create: Effect.fn("CommandCodeDriver.create")(function* (input) {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const crypto = yield* Crypto.Crypto;
+    const secureRandom = yield* SecureRandom.SecureRandom;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const { cwd: serverCwd } = (yield* ProviderHost.ProviderHost).paths;
@@ -276,7 +277,7 @@ export const CommandCodeDriver: ProviderDriver<
         settings,
         environment,
         childProcessSpawner: spawner,
-      }).pipe(Effect.provideService(Crypto.Crypto, crypto));
+      }).pipe(Effect.provideService(SecureRandom.SecureRandom, secureRandom));
     const discover = Effect.fn("CommandCodeDriver.discover")(function* (cwd: string) {
       const runtime = yield* makeRuntime({
         cwd,
@@ -365,7 +366,7 @@ export const CommandCodeDriver: ProviderDriver<
       settings,
       environment,
       childProcessSpawner: spawner,
-      crypto,
+      secureRandom,
       selfInvocation,
       continuationRequests,
       nativeLogging: (threadId) =>

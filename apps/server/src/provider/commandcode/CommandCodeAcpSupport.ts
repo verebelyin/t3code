@@ -3,7 +3,7 @@ import {
   type RuntimeMode,
   type ServerProviderModel,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
@@ -42,7 +42,7 @@ export const makeCommandCodeAcpRuntime = Effect.fn("makeCommandCodeAcpRuntime")(
 ): Effect.fn.Return<
   AcpSessionRuntime.AcpSessionRuntime["Service"],
   EffectAcpErrors.AcpError,
-  Crypto.Crypto | Scope.Scope
+  SecureRandom.SecureRandom | Scope.Scope
 > {
   const context = yield* Layer.build(
     AcpSessionRuntime.layer({

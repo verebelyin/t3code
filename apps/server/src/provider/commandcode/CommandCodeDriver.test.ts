@@ -1,9 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeURL from "node:url";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -38,7 +40,15 @@ function checkInstance(input: {
     const spawner = ChildProcessSpawner.make((command) =>
       Effect.gen(function* () {
         if (!ChildProcess.isStandardCommand(command)) return yield* nativeSpawner.spawn(command);
-        calls.push({ args: command.args, environment: command.options.env ?? {} });
+        calls.push({
+          args: command.args.map(String),
+          environment: Object.fromEntries(
+            Object.entries(command.options.env ?? {}).map(([key, value]) => [
+              key,
+              Redacted.isRedacted(value) ? Redacted.value(value) : value,
+            ]),
+          ),
+        });
         const handle = yield* nativeSpawner.spawn(
           command.command === "command-code-test"
             ? ChildProcess.make(process.execPath, [fixture, ...command.args], command.options)
@@ -75,6 +85,7 @@ function checkInstance(input: {
     Effect.provide(
       TestProviderHost.layer({ cwd: process.cwd(), runBackgroundWork: false }).pipe(
         Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(NodeCrypto.layer),
         Layer.provideMerge(IdAllocator.layer),
         Layer.provideMerge(McpProviderSessions.layer),
       ),
