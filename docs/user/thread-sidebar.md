@@ -141,8 +141,8 @@ there. A thread returns to the top of the active list when it finishes, fails, o
 answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
 the pinned section.
 
-This is on by default. Turn it off with **Settings → General → Working section** on web and desktop,
-or **Settings → General → Working section** on iOS and Android. Each device keeps its own
+This is off by default on web and desktop and on by default on iOS and Android. Change it with
+**Settings → General → Working section** on either. Each device keeps its own
 choice.
 
 While this is on, the active list is ordered by when each thread last came back to you, so you
