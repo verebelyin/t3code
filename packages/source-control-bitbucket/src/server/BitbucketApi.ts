@@ -38,6 +38,7 @@ import { readSourceControlHostSettings } from "@t3tools/source-control-core/shar
 
 import * as BitbucketClient from "../shared/definition.ts";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
+import { anonymousMark } from "./bitbucketAnonymous.ts";
 
 const DEFAULT_API_BASE_URL = "https://api.bitbucket.org/2.0";
 const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -122,6 +123,8 @@ export class BitbucketResponseError extends Schema.TaggedError<BitbucketResponse
     status: Schema.Int,
     responseBodyLength: NonNegativeInt,
     retryAt: Schema.optional(Schema.Number),
+    // Fork: the request carried no credential, see bitbucketAnonymous.ts.
+    anonymous: Schema.optional(Schema.Boolean),
   },
 ) {
   get detail(): string {
@@ -140,6 +143,8 @@ export class BitbucketResponseBodyReadError extends Schema.TaggedError<Bitbucket
     status: Schema.Int,
     retryAt: Schema.optional(Schema.Number),
     cause: Schema.Defect(),
+    // Fork: the request carried no credential, see bitbucketAnonymous.ts.
+    anonymous: Schema.optional(Schema.Boolean),
   },
 ) {
   get detail(): string {
@@ -628,6 +633,7 @@ const responseError = Effect.fn("BitbucketApi.responseError")(function* (
 ): Effect.fn.Return<never, BitbucketApiError> {
   const now = yield* Clock.currentTimeMillis;
   const retryAt = SourceControlRateLimit.retryAtFromHeader(response.headers["retry-after"], now);
+  const anonymous = anonymousMark(response);
   const collected = yield* collectUint8StreamText({
     stream: response.stream,
     maxBytes: DEFAULT_MAX_RESPONSE_BYTES,
@@ -639,6 +645,7 @@ const responseError = Effect.fn("BitbucketApi.responseError")(function* (
           status: response.status,
           retryAt,
           cause,
+          ...anonymous,
         }),
     ),
   );
@@ -647,6 +654,7 @@ const responseError = Effect.fn("BitbucketApi.responseError")(function* (
     status: response.status,
     responseBodyLength: collected.text.length,
     retryAt,
+    ...anonymous,
   });
 });
 
@@ -725,7 +733,8 @@ export const make = Effect.gen(function* () {
         Effect.tapError((error) =>
           (error._tag === "BitbucketResponseError" ||
             error._tag === "BitbucketResponseBodyReadError") &&
-          error.status === 429
+          error.status === 429 &&
+          error.anonymous !== true
             ? limits.recordRateLimit({ ...rateLimitKey, lease, retryAt: error.retryAt })
             : Effect.void,
         ),

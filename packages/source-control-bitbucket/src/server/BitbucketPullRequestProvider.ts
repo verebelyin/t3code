@@ -4,6 +4,7 @@ import type { PullRequestCapabilities, PullRequestViewerPermissions } from "@t3t
 
 import * as BitbucketApi from "./BitbucketApi.ts";
 import * as BitbucketPullRequestApi from "./BitbucketPullRequestApi.ts";
+import { isAnonymousRefusal } from "./bitbucketAnonymous.ts";
 import {
   PullRequestProviderError,
   type PullRequestProviderFailure,
@@ -63,6 +64,7 @@ export function bitbucketViewerPermissions(input: {
 export function bitbucketProviderFailure(
   error: BitbucketPullRequestApi.BitbucketPullRequestApiError,
 ): PullRequestProviderFailure {
+  if (isAnonymousRefusal(error)) return { reason: "missing-tool" };
   if (
     (error._tag === "BitbucketResponseError" && error.status === 401) ||
     error._tag === "SettingsSecretUnresolvedError"

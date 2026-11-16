@@ -37,6 +37,11 @@ an upstream component body into a fork file.
   `SubagentModelTraitsLabel.tsx`. An unset effort reads as the model's default,
   as upstream's model-switch markers do.
 
+- Bitbucket without a credential: `packages/source-control-bitbucket/src/server/bitbucketAnonymous.ts`.
+  Upstream reports an anonymous read of a private repository as not found, then
+  as a rate limit once the anonymous quota is spent, and never asks for
+  credentials.
+
 ## Upstream files with hook-ins
 
 Expect these to conflict first; resolve by keeping upstream and re-adding the
@@ -55,6 +60,9 @@ hook-in.
 - `Orchestrator.ts` — `modelSelection` on app-owned tasks and the usage roll-up
   in `finalizeAppOwnedSubagentTask`; `ClaudeAdapterV2.ts` — `usage` on
   `updateClaudeSubagentNode`.
+- `BitbucketApi.ts` — `anonymous` on the two response errors, set in
+  `responseError`, and no host pause for an anonymous 429 in `throttled`;
+  `BitbucketPullRequestProvider.ts` — the first line of `bitbucketProviderFailure`.
 - `SubagentTooltipContent.tsx` (`<SubagentTokenUsageLine />`), `V2LifecycleRow.tsx`,
   `TimelineV2EventRow.tsx` (group header), `ThreadRelationshipsControl.tsx`
   (Lineage token slot).
