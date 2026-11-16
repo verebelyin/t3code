@@ -72,6 +72,8 @@ hook-in.
 - `BitbucketApi.ts` — `anonymous` on the two response errors, set in
   `responseError`, and no host pause for an anonymous 429 in `throttled`;
   `BitbucketPullRequestProvider.ts` — the first line of `bitbucketProviderFailure`.
+- `ThreadTerminalDrawer.tsx` — the single-terminal action buttons sit in a row
+  above the terminal; upstream floats them over its top-right corner.
 - `SubagentTooltipContent.tsx` (`<SubagentTokenUsageLine />`), `V2LifecycleRow.tsx`,
   `TimelineV2EventRow.tsx` (group header), `ThreadRelationshipsControl.tsx`
   (Lineage token slot).

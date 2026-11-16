@@ -1818,8 +1818,10 @@ export default function ThreadTerminalDrawer({
       {resizeHandle}
 
       {!hasTerminalSidebar && (
-        <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs">
+        // Fork: a row of its own, so the buttons never cover the terminal's first lines.
+        <div className="flex shrink-0 justify-end bg-(--terminal-background) px-2 py-1">
+          {/* Sits above the taller touch resize handle so its buttons keep their taps. */}
+          <div className="inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs any-pointer-coarse:relative any-pointer-coarse:z-30">
             <TerminalActionButton
               disabled={!canOperateTerminal}
               className={`p-1 text-foreground/90 transition-colors ${
