@@ -8,7 +8,7 @@ import type {
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 
-import { useThreadShell } from "../../state/entities";
+import { useQuietThreadShell } from "../../state/entities";
 import { serverEnvironment } from "../../state/server";
 import {
   formatSubagentTokenBreakdown,
@@ -36,7 +36,7 @@ export function SubagentModelTraitsLabel(props: {
   );
   const needsChild =
     props.modelSelection === undefined && props.origin === "app_owned" && props.childThreadId;
-  const child = useThreadShell(
+  const child = useQuietThreadShell(
     needsChild ? scopeThreadRef(props.environmentId, props.childThreadId!) : null,
   )?.source;
   if (props.model === null && props.modelSelection === undefined) return null;
