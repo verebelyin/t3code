@@ -3,24 +3,28 @@ import { formatResetsIn, remainingPercent } from "@t3tools/shared/usageLimits";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { composerLimitWindows } from "../../lib/rateLimits";
-
-// Green until 50% used, amber to 90%, red above. Green is muted: "fine" is the resting state.
-function windowColor(usedPercent: number): string {
-  if (usedPercent > 90) return "var(--color-error)";
-  if (usedPercent >= 50) return "var(--color-warning)";
-  return "color-mix(in oklab, var(--color-success) 55%, var(--color-muted-foreground))";
-}
+import { cn } from "../../lib/utils";
 
 function InlineWindow(props: { label: string; window: ServerProviderUsageWindow; now: number }) {
   const used = 100 - remainingPercent(props.window);
   const resetsIn = formatResetsIn(props.window, props.now)?.replace(/^resets in /, "");
   return (
-    <span>
-      <span className="opacity-60">{props.label}</span>{" "}
-      <span className="font-semibold" style={{ color: windowColor(used) }}>
-        {String(used).padStart(2, "0")}%
+    <span className="inline-flex items-baseline gap-1">
+      <span>{props.label}</span>
+      <span
+        className={cn(
+          "font-medium",
+          // The same bands as the limit rows in thread details: 20% left warns, 10% is an error.
+          used >= 90
+            ? "text-error-foreground"
+            : used >= 80
+              ? "text-warning-foreground"
+              : "text-foreground/80",
+        )}
+      >
+        {used}%
       </span>
-      {resetsIn ? <span className="text-secondary-label"> {resetsIn}</span> : null}
+      {resetsIn ? <span>{resetsIn}</span> : null}
     </span>
   );
 }
@@ -32,11 +36,9 @@ export function RateLimitMeter(props: { limits: ServerProviderUsageLimits | unde
   if (!windows) return null;
   const { fiveHour, weekly } = windows;
   return (
-    <span className="inline-flex h-7 items-center px-2 font-mono text-2xs tracking-tight tabular-nums text-muted-foreground">
+    <span className="inline-flex h-7 shrink-0 items-center gap-2 px-2 text-xs tabular-nums text-muted-foreground">
       {fiveHour ? <InlineWindow label="5h" window={fiveHour} now={now} /> : null}
-      {fiveHour && weekly ? (
-        <span className="mx-1.5 text-secondary-label opacity-50">│</span>
-      ) : null}
+      {fiveHour && weekly ? <span aria-hidden="true" className="h-3 w-px bg-border" /> : null}
       {weekly ? <InlineWindow label="7d" window={weekly} now={now} /> : null}
     </span>
   );

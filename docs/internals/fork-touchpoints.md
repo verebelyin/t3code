@@ -26,6 +26,10 @@ an upstream component body into a fork file.
   permission mapping, question extraction, loop guard, auth, and usage reader.
   `CommandCodeUsage.ts` reads native sessions (`~/.commandcode/projects`); its
   `inputTokens` is the AI SDK total, so cache reads and writes are subtracted.
+- `apps/web/src/components/chat/ComposerContextMeter.tsx` — the context window
+  as a ring beside the chip. Upstream deleted its composer meter and the
+  `contextWindowMeterEnabled` setting in #33131 and shows context only in
+  thread details; here the ring is always on.
 - `apps/web/src/components/chat/RateLimitMeter.tsx`, `apps/web/src/lib/rateLimits.ts`
   — the composer chip. It reads the instance's `usageLimits` with upstream's
   `@t3tools/shared/usageLimits` helpers; upstream's thread details "Usage
@@ -55,7 +59,12 @@ hook-in.
   `docs/user/install.md` and `permission-modes.md`.
 - `ChatComposer.tsx` passes the instance's `usageLimits` to
   `ComposerFooterPrimaryActions`, which renders `<RateLimitMeter />`
-  (`ComposerFooterControls.tsx`).
+  (`ComposerFooterControls.tsx`). `ChatView.tsx` passes `activeContextWindow`
+  down the same path to `<ComposerContextMeter />`.
+- Defaults in `contracts/src/settings.ts`: `chatWidth` is `"wide"` and
+  `sidebarWorkingShelfEnabled` is `false`. The "(default)" label in
+  `AppearanceSettingsPanel.tsx` and the Working section paragraph in
+  `docs/user/thread-sidebar.md` follow them. Mobile keeps its own preference.
 - `orchestrationV2.ts` — `usage` on `OrchestrationV2Subagent`.
 - `Orchestrator.ts` — `modelSelection` on app-owned tasks and the usage roll-up
   in `finalizeAppOwnedSubagentTask`; `ClaudeAdapterV2.ts` — `usage` on
