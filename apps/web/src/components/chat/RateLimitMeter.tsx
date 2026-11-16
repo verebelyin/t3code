@@ -9,22 +9,22 @@ function InlineWindow(props: { label: string; window: ServerProviderUsageWindow;
   const used = 100 - remainingPercent(props.window);
   const resetsIn = formatResetsIn(props.window, props.now)?.replace(/^resets in /, "");
   return (
-    <span className="inline-flex items-baseline gap-1">
-      <span>{props.label}</span>
+    // Trimmed to the cap box like ComposerControl labels, so both sit on one optical line.
+    <span className="[text-box:trim-both_cap_alphabetic]">
+      {props.label}{" "}
       <span
         className={cn(
           "font-medium",
-          // The same bands as the limit rows in thread details: 20% left warns, 10% is an error.
-          used >= 90
+          used > 90
             ? "text-error-foreground"
-            : used >= 80
+            : used >= 50
               ? "text-warning-foreground"
-              : "text-foreground/80",
+              : "text-success-foreground",
         )}
       >
         {used}%
       </span>
-      {resetsIn ? <span>{resetsIn}</span> : null}
+      {resetsIn ? ` ${resetsIn}` : null}
     </span>
   );
 }
@@ -36,7 +36,8 @@ export function RateLimitMeter(props: { limits: ServerProviderUsageLimits | unde
   if (!windows) return null;
   const { fiveHour, weekly } = windows;
   return (
-    <span className="inline-flex h-7 shrink-0 items-center gap-2 px-2 text-xs tabular-nums text-muted-foreground">
+    // The type scale of a ComposerControl, so the meter reads as part of the same row.
+    <span className="inline-flex h-7 shrink-0 items-center gap-2 px-2 text-base whitespace-nowrap tabular-nums text-muted-foreground sm:text-sm">
       {fiveHour ? <InlineWindow label="5h" window={fiveHour} now={now} /> : null}
       {fiveHour && weekly ? <span aria-hidden="true" className="h-3 w-px bg-border" /> : null}
       {weekly ? <InlineWindow label="7d" window={weekly} now={now} /> : null}
