@@ -46,6 +46,14 @@ an upstream component body into a fork file.
   as a rate limit once the anonymous quota is spent, and never asks for
   credentials.
 
+## Cherry-picked upstream work
+
+- Jira Cloud tracker: draft upstream PR #38003 (`packages/issue-tracker-jira`, the
+  `IssueTrackerCredential` with `credential.fields`), merged onto upstream's
+  multi-account trackers. Jira's `parseIssueUrl` and the probe's `workspace` are
+  fork additions. When upstream lands its own version, take upstream's side for
+  every Jira and tracker-credential file and drop this entry.
+
 ## Upstream files with hook-ins
 
 Expect these to conflict first; resolve by keeping upstream and re-adding the

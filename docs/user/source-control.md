@@ -426,6 +426,11 @@ each can be loaded further on its own. Agents file new issues in the first team 
 connect another Linear workspace or user, add another account in the same place; each project
 reads its teams through the account you picked them under.
 
+To list a Jira Cloud project's issues, connect Jira under Settings → Source control & issues with
+your site (`yourteam.atlassian.net`), your account email, and an API token, then choose the project
+there. Jira issues move along their workflow's transitions, and have no reactions or linked pull
+requests here. A new Jira issue is filed as a Task.
+
 Select an issue to open it beside the list: description, comments, state changes, linked pull
 requests, labels, assignees, and reactions. Linked pull requests open in the same panel. You can
 comment, edit the title and description, change labels and assignees, react, and move it to
