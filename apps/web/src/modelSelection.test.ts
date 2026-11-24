@@ -1,7 +1,7 @@
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   DEFAULT_TEXT_GENERATION_MODEL,
-  DEFAULT_SERVER_SETTINGS,
+  DEFAULT_SERVER_SETTINGS as FORK_SERVER_SETTINGS,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -9,7 +9,7 @@ import {
 } from "@t3tools/contracts";
 import {
   DEFAULT_CLIENT_SETTINGS,
-  DEFAULT_UNIFIED_SETTINGS,
+  DEFAULT_UNIFIED_SETTINGS as FORK_UNIFIED_SETTINGS,
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { describe, expect, it } from "vite-plus/test";
@@ -31,6 +31,10 @@ import {
   resolveAppModelSelectionState,
   resolveEffectiveDefaultModelSelection,
 } from "./modelSelection";
+
+// Fork: these cases exercise the automatic default model, upstream's default.
+const DEFAULT_SERVER_SETTINGS = { ...FORK_SERVER_SETTINGS, defaultModelSelection: null };
+const DEFAULT_UNIFIED_SETTINGS = { ...FORK_UNIFIED_SETTINGS, defaultModelSelection: null };
 
 function provider(input: {
   provider?: ProviderDriverKind;

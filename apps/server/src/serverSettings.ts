@@ -304,6 +304,13 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
     ...(providerHealthRefreshInterval !== undefined
       ? { providerHealthRefreshInterval: providerHealthRefreshInterval as Duration.Duration }
       : {}),
+    // Fork: replace the default model whole; merging would keep the fork default's options.
+    ...(overrides.defaultModelSelection !== undefined
+      ? {
+          defaultModelSelection:
+            overrides.defaultModelSelection as ServerSettings["defaultModelSelection"],
+        }
+      : {}),
   });
   const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
   const writeSemaphore = yield* Semaphore.make(1);
@@ -597,6 +604,8 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "reviewGuideModelSelection",
   "textGenerationModelSelection",
   "fallbackModelSelection",
+  // Fork: its default is a selection, not null, so it needs listing here.
+  "defaultModelSelection",
   "pullRequestMergeMethod",
   // Empty by default, these hold one whole value, which a managed policy can default.
   ...Object.entries(DEFAULT_SERVER_SETTINGS).flatMap(([key, value]) =>

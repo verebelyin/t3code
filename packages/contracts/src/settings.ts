@@ -417,7 +417,8 @@ export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
   ),
-  inAppNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Fork: on by default; upstream starts off.
+  inAppNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   diffColorScheme: DiffColorScheme.pipe(
     Schema.withDecodingDefault(Effect.succeed("red-green" as const)),
   ),
@@ -1455,8 +1456,15 @@ export const ServerSettings = Schema.Struct({
   projectAutoPullOverrides: Schema.Record(ProjectId, Schema.Boolean).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  // Fork: Claude Opus 5.5 at high effort; upstream starts at null (automatic).
   defaultModelSelection: Schema.NullOr(ModelSelection).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
+    Schema.withDecodingDefault(
+      Effect.succeed({
+        instanceId: "claudeAgent",
+        model: "claude-opus-5-5",
+        options: [{ id: "effort", value: "high" }],
+      }),
+    ),
   ),
   fallbackModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1484,8 +1492,9 @@ export const ServerSettings = Schema.Struct({
   sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
   ),
+  // Fork: true, so idle compaction defaults to "beforeCacheExpires"; upstream's is "onReturn".
   compactIdleThreads: LegacyCompactIdleThreads.pipe(
-    Schema.withDecodingDefault(Effect.succeed(false)),
+    Schema.withDecodingDefault(Effect.succeed(true)),
   ),
   idleCompaction: Schema.optionalKey(IdleCompactionMode),
   snoozeLimitedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),

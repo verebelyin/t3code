@@ -55,17 +55,25 @@ reasoned disable comment instead of an entry in upstream's proper-noun list.
 - Command Code: `builtInDrivers.ts` (driver and `BUILT_IN_USAGE_DRIVERS`),
   `ProviderRegistry.ts`, `contracts/src/model.ts`, `contracts/src/index.ts`,
   `"commandcode"` in `UsageProviderKind` (`contracts/src/usage.ts`),
-  `client-runtime/src/providerClients.ts`, `settingsSearch.ts`, the exhaustive
+  `client-runtime/src/providerClients.ts`, `KNOWN_DRIVERS` in
+  `policy/managedProviders.ts`, `settingsSearch.ts`, the exhaustive
   web and mobile `usageProviders.ts` tables, and the provider lists in
   `docs/user/install.md` and `permission-modes.md`.
 - `ChatComposer.tsx` passes the instance's `usageLimits` to
   `ComposerFooterPrimaryActions`, which renders `<RateLimitMeter />`
   (`ComposerFooterControls.tsx`). `ChatView.tsx` passes `activeContextWindow`
   down the same path to `<ComposerContextMeter />`.
-- Defaults in `contracts/src/settings.ts`: `chatWidth` is `"wide"` and
-  `sidebarWorkingShelfEnabled` is `false`. The "(default)" label in
-  `AppearanceSettingsPanel.tsx` and the Working section paragraph in
+- Defaults in `contracts/src/settings.ts`: `chatWidth` is `"wide"`,
+  `sidebarWorkingShelfEnabled` is `false`, `inAppNotificationsEnabled` is
+  `true`, `compactIdleThreads` is `true` (idle compaction "beforeCacheExpires"),
+  and `defaultModelSelection` is Claude Opus 5.5 at high effort. The "(default)"
+  label in `AppearanceSettingsPanel.tsx` and the Working section paragraph in
   `docs/user/thread-sidebar.md` follow them. Mobile keeps its own preference.
+  Upstream assumes a null default model: `serverSettings.ts` lists it in
+  `ATOMIC_SETTINGS_KEYS` and replaces it whole in `makeTest`, and
+  `listManageableSettings` (`policy/managedSettings.ts`) keeps nullable settings
+  whole. Upstream tests that read these defaults compare against
+  `DEFAULT_SERVER_SETTINGS`, or carry a `// Fork:` line.
 - `orchestrationV2.ts` — `usage` on `OrchestrationV2Subagent`.
 - `Orchestrator.ts` — `modelSelection` on app-owned tasks and the usage roll-up
   in `finalizeAppOwnedSubagentTask`, which reads the child run's attempts and

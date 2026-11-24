@@ -300,8 +300,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;
       const settings = yield* service.getSettings;
-      assert.equal(settings.idleCompaction, "onReturn");
-      assert.strictEqual(settings.compactIdleThreads, false);
+      // Fork: idle threads compact before the cache expires by default.
+      assert.equal(settings.idleCompaction, "beforeCacheExpires");
+      assert.strictEqual(settings.compactIdleThreads, true);
     }).pipe(Effect.provide(layerServerSettings())),
   );
 

@@ -2,6 +2,7 @@ import {
   AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
+  CommandCodeSettings,
   defaultInstanceIdForDriver,
   disallowedProviderMessage,
   type ManagedProviderInstance,
@@ -75,6 +76,8 @@ const KNOWN_DRIVERS: ReadonlyMap<ProviderDriverKind, KnownDriver> = new Map([
   ...PACKAGED_CLIENTS.map((client) =>
     known(client.driverKind, client.label, client.settingsSchema, client.hasDefaultInstance),
   ),
+  // Fork: Command Code registers outside PACKAGED_CLIENTS.
+  known("commandcode", "Command Code", CommandCodeSettings, false),
 ]);
 
 /** Each driver a policy may name, with the label users see. */

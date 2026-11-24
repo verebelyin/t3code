@@ -102,7 +102,9 @@ describe("resolveProjectSettings", () => {
       projectId,
       project,
     );
-    expect(folded.settings.defaultModelSelection).toBeNull();
+    expect(folded.settings.defaultModelSelection).toEqual(
+      DEFAULT_SERVER_SETTINGS.defaultModelSelection,
+    );
     expect(folded.sources.defaultModelSelection).toBe("environment");
   });
 
@@ -118,7 +120,9 @@ describe("resolveProjectSettings", () => {
       projectSettingsOverrides: { [projectId]: { defaultModelSelection: disabledSelection } },
     });
     const resolved = resolveProjectSettings(settings, projectId);
-    expect(resolved.settings.defaultModelSelection).toBeNull();
+    expect(resolved.settings.defaultModelSelection).toEqual(
+      DEFAULT_SERVER_SETTINGS.defaultModelSelection,
+    );
     expect(resolved.sources.defaultModelSelection).toBe("environment");
   });
 

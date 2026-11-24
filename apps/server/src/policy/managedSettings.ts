@@ -259,6 +259,10 @@ export function listManageableSettings() {
         ? ast.propertySignatures.map(({ name, type }) => [String(name), type])
         : [],
     );
+    // Fork: a nullable setting whose default is an object (defaultModelSelection) is managed whole.
+    if (ast !== undefined && SchemaAST.isUnion(ast) && ast.types.some(SchemaAST.isNull)) {
+      return [[path, value]];
+    }
     const children = isRecord(value) ? value : {};
     const keys = new Set([...fields.keys(), ...Object.keys(children)]);
     return keys.size > 0
