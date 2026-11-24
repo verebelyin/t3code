@@ -7,11 +7,13 @@ import {
   subagentGroupSummary,
   summarizeSubagentStatuses,
 } from "@t3tools/client-runtime/state/subagent-display";
+import { useGT, useMessages } from "gt-react";
 import { memo, use, useState } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "../ui/collapsible";
 import { EnvironmentSubagentAvatar, SubagentElapsed, V2LifecycleRow } from "./V2LifecycleRow";
+import { FeedbackRequestCard } from "./FeedbackRequestCard";
 import { LinkRequestCard } from "./LinkRequestCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { TimelineRowCtx, type TimelineRow } from "./timelineRowContext";
@@ -27,6 +29,15 @@ export function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: 
   if (item.type === "secret_request") {
     return (
       <SecretRequestCard
+        environmentId={ctx.activeThreadEnvironmentId}
+        item={item}
+        visibility={visibility}
+      />
+    );
+  }
+  if (item.type === "feedback_request") {
+    return (
+      <FeedbackRequestCard
         environmentId={ctx.activeThreadEnvironmentId}
         item={item}
         visibility={visibility}
@@ -59,6 +70,8 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
   row: Extract<TimelineRow, { kind: "event" }>;
 }) {
   const ctx = use(TimelineRowCtx);
+  const gt = useGT();
+  const m = useMessages();
   const groupId = `subagent-group:${row.id}`;
   const [expanded, setExpanded] = useState(() =>
     ctx.workGroupViewState.expandedEntries.has(groupId),
@@ -85,8 +98,10 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
       completedAt: live?.completedAt ?? item.completedAt,
     };
   });
-  const summary = subagentGroupSummary(agents);
-  const label = `${members.length} ${members.length === 1 ? "subagent" : "subagents"}`;
+  const summary = subagentGroupSummary(agents, m);
+  const label = gt("{count, plural, one {{count} subagent} other {{count} subagents}}", {
+    count: members.length,
+  });
   // Fork: which model and effort the group ran with.
   const modelSummary = summarizeSubagentModels(
     members.map((item) => {
@@ -100,7 +115,10 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
       };
     }),
   );
-  const statusSummary = summarizeSubagentStatuses(agents.map(({ status }) => status));
+  const statusSummary = summarizeSubagentStatuses(
+    agents.map(({ status }) => status),
+    m,
+  );
   const toggleExpanded = (open: boolean) => {
     ctx.onToggleWorkEntry(row.id, expanded);
     if (open) ctx.workGroupViewState.expandedEntries.add(groupId);

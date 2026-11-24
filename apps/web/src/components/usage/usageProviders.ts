@@ -49,6 +49,7 @@ export const PROVIDER_PRESENTATION = {
   },
   // Fork: Command Code native sessions.
   commandcode: {
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- product name
     label: "Command Code",
     color: "#c9a227",
     driverKind: ProviderDriverKind.make("commandcode"),

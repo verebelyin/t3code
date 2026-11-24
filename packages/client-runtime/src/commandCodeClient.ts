@@ -4,7 +4,9 @@ import { defineProviderClient } from "@t3tools/provider-core/client";
 // Fork-only provider; kept out of providerClients.ts so upstream edits merge cleanly.
 export const commandCodeClient = defineProviderClient({
   driverKind: ProviderDriverKind.make("commandcode"),
+  // oxlint-disable-next-line t3code/no-untranslated-copy -- product name
   label: "Command Code",
+  // oxlint-disable-next-line t3code/no-untranslated-copy -- rendered as-is, like Kiro's badge
   badgeLabel: "Early Access",
   settingsSchema: CommandCodeSettings,
   hasDefaultInstance: false,

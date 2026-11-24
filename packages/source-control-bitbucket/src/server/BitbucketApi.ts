@@ -123,6 +123,7 @@ export class BitbucketResponseError extends Schema.TaggedError<BitbucketResponse
     status: Schema.Int,
     responseBodyLength: NonNegativeInt,
     retryAt: Schema.optional(Schema.Number),
+    userFacingDetail: Schema.optional(Schema.String),
     // Fork: the request carried no credential, see bitbucketAnonymous.ts.
     anonymous: Schema.optional(Schema.Boolean),
   },
@@ -614,7 +615,7 @@ function authFromCredential(credential: BitbucketCredential | null): SourceContr
     account: Option.none(),
     host: Option.some("bitbucket.org"),
     detail: Option.some(
-      "Add a Bitbucket token in Settings → Source Control, or set the T3CODE_BITBUCKET_* environment variables on the server.",
+      "Add a Bitbucket token in Settings → Source control & issues, or set the T3CODE_BITBUCKET_* environment variables on the server.",
     ),
   };
 }
@@ -1112,8 +1113,20 @@ export const make = Effect.gen(function* () {
     getPullRequest: Effect.fn("BitbucketApi.getPullRequest")(function (input) {
       return getRawPullRequest(input).pipe(Effect.map(normalizeBitbucketPullRequestRecord));
     }),
-    getRepositoryCloneUrls: Effect.fn("BitbucketApi.getRepositoryCloneUrls")(function (input) {
-      return getRepository(input).pipe(Effect.map(normalizeRepositoryCloneUrls));
+    getRepositoryCloneUrls: Effect.fn("BitbucketApi.getRepositoryCloneUrls")(function* (input) {
+      const locator = yield* resolveRepository(input);
+      return yield* getRepositoryFromLocator(locator).pipe(
+        Effect.mapError((error) => {
+          if (error._tag !== "BitbucketResponseError" || error.status !== 404) return error;
+          return new BitbucketResponseError({
+            ...error,
+            userFacingDetail: SourceControlProvider.repositoryNotFoundDetail(
+              `${locator.workspace}/${locator.repoSlug}`,
+            ),
+          });
+        }),
+        Effect.map(normalizeRepositoryCloneUrls),
+      );
     }),
     createRepository: Effect.fn("BitbucketApi.createRepository")(function (input) {
       return requireRepositoryLocator(input.repository).pipe(

@@ -1,13 +1,20 @@
 import type { ServerProviderUsageLimits, ServerProviderUsageWindow } from "@t3tools/contracts";
-import { formatResetsIn, remainingPercent } from "@t3tools/shared/usageLimits";
+import { remainingPercent, resetCountdown } from "@t3tools/shared/usageLimits";
+import { formatDuration, formatResetsIn } from "@t3tools/shared/usageLimitsCopy";
+import { useMessages } from "gt-react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { composerLimitWindows } from "../../lib/rateLimits";
 import { cn } from "../../lib/utils";
 
 function InlineWindow(props: { label: string; window: ServerProviderUsageWindow; now: number }) {
+  const m = useMessages();
   const used = 100 - remainingPercent(props.window);
-  const resetsIn = formatResetsIn(props.window, props.now)?.replace(/^resets in /, "");
+  const countdown = resetCountdown(props.window, props.now);
+  const resetsIn =
+    countdown?.kind === "in"
+      ? formatDuration(countdown.ms, m)
+      : formatResetsIn(props.window, props.now, m);
   return (
     // Trimmed to the cap box like ComposerControl labels, so both sit on one optical line.
     <span className="[text-box:trim-both_cap_alphabetic]">

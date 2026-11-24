@@ -32,7 +32,7 @@ an upstream component body into a fork file.
   thread details; here the ring is always on.
 - `apps/web/src/components/chat/RateLimitMeter.tsx`, `apps/web/src/lib/rateLimits.ts`
   — the composer chip. It reads the instance's `usageLimits` with upstream's
-  `@t3tools/shared/usageLimits` helpers; upstream's thread details "Usage
+  `@t3tools/shared/usageLimits` and `usageLimitsCopy` helpers; upstream's thread details "Usage
   limits" item carries the full breakdown.
 - Subagent model, effort, and tokens: `packages/contracts/src/subagentTokenUsage.ts`
   (the wire schema; upstream's `SubagentUsage` is a client-only interface),
@@ -49,7 +49,8 @@ an upstream component body into a fork file.
 ## Upstream files with hook-ins
 
 Expect these to conflict first; resolve by keeping upstream and re-adding the
-hook-in.
+hook-in. Fork copy in linted client code (`no-untranslated-copy`) carries a
+reasoned disable comment instead of an entry in upstream's proper-noun list.
 
 - Command Code: `builtInDrivers.ts` (driver and `BUILT_IN_USAGE_DRIVERS`),
   `ProviderRegistry.ts`, `contracts/src/model.ts`, `contracts/src/index.ts`,
@@ -67,7 +68,8 @@ hook-in.
   `docs/user/thread-sidebar.md` follow them. Mobile keeps its own preference.
 - `orchestrationV2.ts` — `usage` on `OrchestrationV2Subagent`.
 - `Orchestrator.ts` — `modelSelection` on app-owned tasks and the usage roll-up
-  in `finalizeAppOwnedSubagentTask`; `ClaudeAdapterV2.ts` — `usage` on
+  in `finalizeAppOwnedSubagentTask`, which reads the child run's attempts and
+  provider turns itself (upstream's `DelegatedChildControls` omits them); `ClaudeAdapterV2.ts` — `usage` on
   `updateClaudeSubagentNode`.
 - `BitbucketApi.ts` — `anonymous` on the two response errors, set in
   `responseError`, and no host pause for an anonymous 429 in `throttled`;
