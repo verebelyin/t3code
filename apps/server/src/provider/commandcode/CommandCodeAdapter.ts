@@ -116,6 +116,7 @@ export interface CommandCodeAdapterV2Options {
   ) => Effect.Effect<void>;
   readonly onConfigOptionsUpdated?: (
     configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
+    modelState: EffectAcpSchema.SessionModelState | null | undefined,
   ) => Effect.Effect<void>;
 }
 
@@ -142,8 +143,8 @@ function makeCommandCodeAcpAdapterFlavor(options: CommandCodeAdapterV2Options): 
         Effect.provideService(SecureRandom.SecureRandom, options.secureRandom),
       ),
     sessionModeForPolicy: (policy) => commandCodePermissionMode(policy.runtimeMode),
-    onSessionConfigurationUpdate: (configOptions) =>
-      options.onConfigOptionsUpdated?.(configOptions) ?? Effect.void,
+    onSessionConfigurationUpdate: (configOptions, _modeState, modelState) =>
+      options.onConfigOptionsUpdated?.(configOptions, modelState) ?? Effect.void,
     approvalOptions: commandCodeApprovalOptions,
     extractPermissionQuestion: (request) => {
       const question = extractCommandCodeUserInputQuestion(request);

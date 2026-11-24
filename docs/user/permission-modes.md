@@ -28,7 +28,7 @@ the parent conversation with the subagent's name, so you can respond without swi
 
 Providers enforce permissions differently. Some read-only actions can proceed in **Supervised**.
 **Auto** uses automatic review on Codex, Claude, Cursor, Grok, Antigravity, and fx; providers without
-an equivalent, including OpenCode and Command Code, fall back to asking. On Grok and Antigravity, actions their review
+an equivalent, including OpenCode, fall back to asking. On Grok and Antigravity, actions their review
 does not approve come to you for approval. On fx, prompts it still sends also come to you.
 
 Antigravity offers **Auto** only when your Antigravity sign-in provides its Auto mode; some accounts,
@@ -37,6 +37,8 @@ including some personal Google accounts, do not. Without it, an Antigravity thre
 
 Muse Code offers only **Supervised** and **Full access**. A Muse thread already set to another mode
 runs in **Supervised**.
+
+Command Code offers no **Auto**. A Command Code thread already set to it runs in **Supervised**.
 
 T3 Code offers no **Auto-accept edits** for fx, and **Full access** only with fx 0.0.14 or later. An fx
 thread set to a mode its fx lacks runs in **Supervised**.

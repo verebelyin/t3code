@@ -5,7 +5,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -16,6 +18,7 @@ import {
   ProviderEventLoggers,
 } from "@t3tools/provider-core/server/ProviderEventLoggers";
 import {
+  COMMAND_CODE_CHECKING_MESSAGE,
   CommandCodeDriver,
   commandCodeVersionAtLeast,
   parseCommandCodeStatus,
@@ -73,12 +76,17 @@ function checkInstance(input: {
       enabled: input.enabled ?? true,
       config: { binaryPath: input.binaryPath ?? "command-code-test" },
     }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-    const initial = yield* provider.snapshot.getSnapshot;
+    const created = yield* provider.snapshot.getSnapshot;
+    const initial = yield* provider.snapshot.streamChanges.pipe(
+      Stream.filter((snapshot) => snapshot.message !== COMMAND_CODE_CHECKING_MESSAGE),
+      Stream.runHead,
+      Effect.map(Option.getOrThrow),
+    );
     const scoped = provider.snapshotForCwd
       ? yield* provider.snapshotForCwd(process.cwd())
       : undefined;
     const refreshed = yield* provider.snapshot.refresh;
-    return { initial, scoped, refreshed, calls, processesReleased };
+    return { created, initial, scoped, refreshed, calls, processesReleased };
   }).pipe(
     Effect.scoped,
     Effect.provideService(ProviderEventLoggers, NoOpProviderEventLoggers),
@@ -159,6 +167,8 @@ describe("Command Code driver lifecycle", () => {
       const result = yield* checkInstance({
         environment: { COMMAND_CODE_API_KEY: "isolated-test-key" },
       });
+      expect(result.created.message).toBe(COMMAND_CODE_CHECKING_MESSAGE);
+      expect(result.initial.supportedRuntimeModes).not.toContain("auto");
       expect(result.initial.models.map((model) => model.slug)).toEqual(["fake-model"]);
       expect(result.refreshed.models.map((model) => model.slug)).toEqual(["fake-model"]);
       expect(result.initial.supportsTextGeneration).toBe(false);

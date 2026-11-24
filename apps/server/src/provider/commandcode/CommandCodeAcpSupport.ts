@@ -100,10 +100,7 @@ function optionDescriptor(option: EffectAcpSchema.SessionConfigOption) {
 
 export function commandCodeModels(
   configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
-  sessionSetup?:
-    | EffectAcpSchema.LoadSessionResponse
-    | EffectAcpSchema.NewSessionResponse
-    | EffectAcpSchema.ResumeSessionResponse,
+  sessionSetup?: { readonly models?: EffectAcpSchema.SessionModelState | null | undefined },
 ): ReadonlyArray<ServerProviderModel> {
   const modelOption = configOptions.find(
     (option) => option.id === "model" || option.category === "model",

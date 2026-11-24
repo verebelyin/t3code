@@ -10,6 +10,18 @@ export const commandCodeClient = defineProviderClient({
   badgeLabel: "Early Access",
   settingsSchema: CommandCodeSettings,
   hasDefaultInstance: false,
+  environmentFields: [
+    {
+      name: "COMMAND_CODE_API_KEY",
+      // oxlint-disable-next-line t3code/no-untranslated-copy -- rendered as-is, like Kiro's fields
+      label: "Command Code API key",
+      // oxlint-disable-next-line t3code/no-untranslated-copy -- rendered as-is, like Kiro's fields
+      description: "Optional. Signs in without `command-code login`.",
+      // oxlint-disable-next-line t3code/no-untranslated-copy -- rendered as-is, like Kiro's fields
+      placeholder: "Paste API key",
+      sensitive: true,
+    },
+  ],
   // Terminal prompt `>_`, outlined from a 2.5-wide round-capped stroke.
   icon: {
     viewBox: "0 0 24 24",

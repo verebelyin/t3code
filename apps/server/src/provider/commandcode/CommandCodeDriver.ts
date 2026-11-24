@@ -61,9 +61,12 @@ const PRESENTATION = {
   displayName: "Command Code",
   badgeLabel: "Early Access",
   showInteractionModeToggle: true,
+  // ACP "auto" would approve every request; Command Code has no classifier mode.
+  supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
   reportsContextWindow: true,
   supportsConversationRollback: false,
-};
+} as const;
+export const COMMAND_CODE_CHECKING_MESSAGE = "Checking Command Code…";
 // ACP creates the native harness before T3 can switch it to plan mode, and the
 // CLI allows file tools there, so there is no tool-free session to generate in.
 const unsupportedTextGeneration: ProviderTextGeneration = (() => {
@@ -178,23 +181,27 @@ export const CommandCodeDriver: ProviderDriver<
     const driverError = (detail: string, cause: unknown) =>
       new ProviderDriverError({ driver: DRIVER, instanceId: input.instanceId, detail, cause });
     const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
-    const checkProvider = Effect.gen(function* () {
+    const initialSnapshot = Effect.gen(function* () {
       const checkedAt = yield* now;
-      if (!input.enabled)
-        return stamp(
-          buildServerProvider({
-            presentation: PRESENTATION,
-            enabled: false,
-            checkedAt,
-            models: [],
-            probe: {
-              installed: false,
-              version: null,
-              status: "warning",
-              auth: { status: "unknown" },
-            },
-          }),
-        );
+      return stamp(
+        buildServerProvider({
+          presentation: PRESENTATION,
+          enabled: input.enabled,
+          checkedAt,
+          models: [],
+          probe: {
+            installed: false,
+            version: null,
+            status: "warning",
+            auth: { status: "unknown" },
+            ...(input.enabled ? { message: COMMAND_CODE_CHECKING_MESSAGE } : {}),
+          },
+        }),
+      );
+    });
+    const checkProvider = Effect.gen(function* () {
+      if (!input.enabled) return yield* initialSnapshot;
+      const checkedAt = yield* now;
       const versionResult = yield* Effect.exit(
         spawnAndCollect(
           settings.binaryPath,
@@ -303,47 +310,52 @@ export const CommandCodeDriver: ProviderDriver<
       };
     }, Effect.scoped);
 
-    const snapshots = yield* SubscriptionRef.make<ServerProvider>(yield* checkProvider);
+    const snapshots = yield* SubscriptionRef.make<ServerProvider>(yield* initialSnapshot);
     const refreshLock = yield* Semaphore.make(1);
+    const discoverMetadata = (base: ServerProvider, cwd: string) =>
+      base.enabled && base.status === "ready" && base.auth.status === "authenticated"
+        ? discover(cwd).pipe(
+            Effect.mapError((cause) =>
+              driverError(`Could not discover Command Code models for '${cwd}'.`, cause),
+            ),
+            Effect.asSome,
+          )
+        : Effect.succeedNone;
     const discoverForCwd = Effect.fn("discoverForCwd")(function* (cwd: string) {
       const base = yield* SubscriptionRef.get(snapshots);
-      if (!base.enabled || base.status !== "ready" || base.auth.status !== "authenticated")
-        return base;
-      const metadata = yield* discover(cwd).pipe(
-        Effect.mapError((cause) =>
-          driverError(`Could not discover Command Code models for '${cwd}'.`, cause),
-        ),
-      );
-      const scoped = { ...base, ...metadata, checkedAt: yield* now };
+      const metadata = yield* discoverMetadata(base, cwd);
+      if (Option.isNone(metadata)) return base;
+      const scoped = { ...base, ...metadata.value, checkedAt: yield* now };
       yield* SubscriptionRef.update(snapshots, (current) =>
-        upsertProviderWorkspaceSnapshot({ ...current, models: metadata.models }, cwd, scoped),
+        upsertProviderWorkspaceSnapshot({ ...current, models: metadata.value.models }, cwd, scoped),
       );
       return scoped;
     });
+    // Publishes once, so readers never see a probed snapshot without its models.
     const refresh = refreshLock.withPermit(
       Effect.gen(function* () {
-        yield* SubscriptionRef.set(snapshots, yield* checkProvider);
-        yield* discoverForCwd(serverCwd).pipe(
-          Effect.catch((cause) =>
-            SubscriptionRef.update(snapshots, (current): ServerProvider => ({
-              ...current,
-              status: "warning",
-              message: cause.detail,
-            })),
+        const probed = yield* checkProvider;
+        const next = yield* discoverMetadata(probed, serverCwd).pipe(
+          Effect.map(
+            Option.match({
+              onNone: () => probed,
+              onSome: (metadata) =>
+                upsertProviderWorkspaceSnapshot({ ...probed, models: metadata.models }, serverCwd, {
+                  ...probed,
+                  ...metadata,
+                }),
+            }),
+          ),
+          Effect.catch((cause): Effect.Effect<ServerProvider> =>
+            Effect.succeed({ ...probed, status: "warning", message: cause.detail }),
           ),
         );
-        return yield* SubscriptionRef.get(snapshots);
+        yield* SubscriptionRef.set(snapshots, next);
+        return next;
       }),
     );
-    yield* discoverForCwd(serverCwd).pipe(
-      Effect.catch((cause) =>
-        SubscriptionRef.update(snapshots, (current): ServerProvider => ({
-          ...current,
-          status: "warning",
-          message: cause.detail,
-        })),
-      ),
-    );
+    // Instances are built one after another; probing inline would stall the rest.
+    if (input.enabled) yield* Effect.forkScoped(refresh);
     const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
       input.enabled
         ? resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
@@ -371,10 +383,10 @@ export const CommandCodeDriver: ProviderDriver<
       continuationRequests,
       nativeLogging: (threadId) =>
         makeNativeLogger({ nativeEventLogger: loggers.native, provider: DRIVER, threadId }),
-      onConfigOptionsUpdated: (options) =>
+      onConfigOptionsUpdated: (options, modelState) =>
         SubscriptionRef.update(snapshots, (current) => ({
           ...current,
-          models: commandCodeModels(options),
+          models: commandCodeModels(options, modelState ? { models: modelState } : undefined),
         })),
       onAvailableCommands: (commands, cwd) =>
         SubscriptionRef.update(snapshots, (current) =>
