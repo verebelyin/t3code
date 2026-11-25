@@ -71,6 +71,11 @@ reasoned disable comment instead of an entry in upstream's proper-noun list.
   `ComposerFooterPrimaryActions`, which renders `<RateLimitMeter />`
   (`ComposerFooterControls.tsx`). `ChatView.tsx` passes `activeContextWindow`
   down the same path to `<ComposerContextMeter />`.
+- Telemetry is opt-in: `T3CODE_TELEMETRY_ENABLED` defaults to false in
+  `AnalyticsService.ts` (both reads) and `isRelayTracingEnabled`
+  (`shared/src/otelEnvironment.ts`), with `// Fork:` tests in
+  `otelEnvironment.test.ts` and desktop `ipc/methods/window.test.ts`, and
+  `docs/user/telemetry.md` and `faq.md`.
 - Defaults in `contracts/src/settings.ts`: `chatWidth` is `"wide"`,
   `sidebarWorkingShelfEnabled` is `false`, `inAppNotificationsEnabled` is
   `true`, `compactIdleThreads` is `true` (idle compaction "beforeCacheExpires"),
