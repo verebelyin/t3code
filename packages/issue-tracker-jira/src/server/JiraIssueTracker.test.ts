@@ -158,6 +158,73 @@ describe("JiraIssueTracker", () => {
     }),
   );
 
+  it.effect("sends a service account through the API gateway, linking issues on the site", () =>
+    Effect.gen(function* () {
+      const cloud = "0c3a1f2e-9b7d-4c55-8e21-5a6b7c8d9e0f";
+      const bot = { ...user("acc_bot", "t3agent"), accountType: "app" };
+      const { tracker, requests } = fakeJira(
+        {
+          "GET /_edge/tenant_info": () => ({ cloudId: cloud }),
+          [`GET /ex/jira/${cloud}/rest/api/3/myself`]: () => bot,
+          [`GET /ex/jira/${cloud}/rest/api/3/project/search`]: () => ({
+            values: [{ key: "ENG", name: "Engineering" }],
+          }),
+          [`POST /ex/jira/${cloud}/rest/api/3/search/jql`]: () => ({ issues: [issue("ENG-7")] }),
+        },
+        {
+          token: "tok_bot",
+          fields: { site: "acme", email: "bot-x1@serviceaccount.atlassian.com" },
+        },
+      );
+      const api = yield* tracker;
+      const probe = yield* api.probeCredential({
+        token: "tok_bot",
+        fields: { site: "acme", email: "bot-x1@serviceaccount.atlassian.com" },
+      });
+      expect(probe).toMatchObject({ account: "t3agent", workspace: "acme.atlassian.net" });
+      const isTenant = (request: (typeof requests)[number]) =>
+        request.path === "/_edge/tenant_info";
+      const asked = requests.filter(isTenant).length;
+
+      const page = yield* api.listIssues(listInput);
+      expect(page.items.map((item) => item.url)).toEqual([
+        "https://acme.atlassian.net/browse/ENG-7",
+      ]);
+
+      // The cloud is asked of the site, unsigned, and remembered after the first answer.
+      const tenant = requests.filter(isTenant);
+      expect(tenant.length).toBe(asked);
+      expect(new Set(tenant.map((request) => `${request.url} ${request.authorization}`))).toEqual(
+        new Set(["https://acme.atlassian.net undefined"]),
+      );
+      const signed = requests.filter((request) => !isTenant(request));
+      expect(new Set(signed.map((request) => request.url))).toEqual(
+        new Set(["https://api.atlassian.com"]),
+      );
+      expect(signed[0]?.authorization).toBe(
+        `Basic ${btoa("bot-x1@serviceaccount.atlassian.com:tok_bot")}`,
+      );
+    }),
+  );
+
+  it.effect("refuses a service account when the site names no cloud", () =>
+    Effect.gen(function* () {
+      const { tracker, requests } = fakeJira(
+        { "GET /_edge/tenant_info": () => new Response("<html/>", { status: 200 }) },
+        null,
+      );
+      const api = yield* tracker;
+      const refused = yield* api
+        .probeCredential({
+          token: "tok_bot",
+          fields: { site: "acme", email: "bot-x1@serviceaccount.atlassian.com" },
+        })
+        .pipe(Effect.flip);
+      expect(refused.reason).not.toBe("unauthenticated");
+      expect(requests.every((request) => request.path === "/_edge/tenant_info")).toBe(true);
+    }),
+  );
+
   it.effect("lists a project's issues with every filter in the query", () =>
     Effect.gen(function* () {
       const { tracker } = fakeJira({

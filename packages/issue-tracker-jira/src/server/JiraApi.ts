@@ -1,6 +1,8 @@
 /**
  * Jira Cloud's REST API (v3), signed with the account email and API token saved in Settings and
- * sent to the site saved beside them. Jira writes its refusals for people, so they pass through.
+ * sent to the site saved beside them. A service account's token works only through Atlassian's
+ * API gateway, so its requests go there, to the site's cloud. Jira writes its refusals for
+ * people, so they pass through.
  */
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -106,10 +108,18 @@ const ErrorBody = Schema.fromJsonString(
 const decodeErrorBody = Schema.decodeUnknownOption(ErrorBody);
 
 interface JiraSite {
+  /** Where people open issues; links always point here. */
   readonly origin: string;
   readonly email: string;
   readonly token: string;
 }
+
+const GATEWAY = "https://api.atlassian.com";
+const TenantInfo = Schema.Struct({ cloudId: Schema.String });
+
+/** Atlassian gives every service account an address on this domain. */
+export const isServiceAccount = (email: string) =>
+  /@serviceaccount\.atlassian\.com$/iu.test(email.trim());
 
 export const fail = (
   operation: string,
@@ -235,6 +245,42 @@ export const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const host = yield* IssueTrackerHost.IssueTrackerHost;
 
+  // A site's cloud never changes, so each is asked once per server run.
+  const cloudIds = new Map<string, string>();
+
+  /** The cloud a site belongs to, from the page Atlassian serves without signing in. */
+  const cloudIdOf = Effect.fn("JiraApi.cloudIdOf")(function* (operation: string, origin: string) {
+    const known = cloudIds.get(origin);
+    if (known !== undefined) return known;
+    const lost = (cause?: unknown) =>
+      fail(operation, "failed", "Jira did not say which Atlassian cloud this site is on.", {
+        cause,
+      });
+    const response = yield* httpClient
+      .execute(
+        HttpClientRequest.get(`${origin}/_edge/tenant_info`).pipe(HttpClientRequest.acceptJson),
+      )
+      .pipe(
+        Effect.timeout(REQUEST_TIMEOUT),
+        Effect.mapError((cause) =>
+          fail(operation, "failed", "Jira could not be reached.", { cause }),
+        ),
+      );
+    if (response.status < 200 || response.status >= 300) return yield* lost();
+    const { cloudId } = yield* HttpClientResponse.schemaBodyJson(TenantInfo)(response).pipe(
+      Effect.mapError(lost),
+    );
+    if (!/^[0-9a-f-]+$/iu.test(cloudId)) return yield* lost();
+    cloudIds.set(origin, cloudId);
+    return cloudId;
+  });
+
+  /** Where requests for a site go: the site itself, or the gateway for a service account. */
+  const apiBase = (operation: string, site: JiraSite) =>
+    isServiceAccount(site.email)
+      ? Effect.map(cloudIdOf(operation, site.origin), (cloudId) => `${GATEWAY}/ex/jira/${cloudId}`)
+      : Effect.succeed(site.origin);
+
   const storedSite = (operation: string) =>
     host.credentials.get(KIND).pipe(
       Effect.flatMap(
@@ -295,7 +341,8 @@ export const make = Effect.gen(function* () {
       request.credential === undefined
         ? yield* storedSite(operation)
         : yield* toSite(operation, request.credential);
-    const base = HttpClientRequest.make(request.method)(`${site.origin}${request.path}`, {
+    const api = yield* apiBase(operation, site);
+    const base = HttpClientRequest.make(request.method)(`${api}${request.path}`, {
       urlParams: Object.entries(request.query ?? {}).flatMap(([key, value]) =>
         value === undefined ? [] : [[key, String(value)] as const],
       ),
