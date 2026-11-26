@@ -11,16 +11,16 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
-import { IssueTrackerKind } from "@t3tools/contracts";
 import {
   IssueTrackerError,
   type IssueTrackerCredential,
 } from "@t3tools/source-control-core/server/IssueTracker";
 import * as IssueTrackerHost from "@t3tools/source-control-core/server/IssueTrackerHost";
 
+import { JIRA_KIND } from "../shared/issueUrl.ts";
 import type { AdfNode } from "./adf.ts";
 
-export const KIND = IssueTrackerKind.make("jira");
+export const KIND = JIRA_KIND;
 const REQUEST_TIMEOUT = "30 seconds";
 const PAGE = 100;
 /** Pages read of a list that only feeds a picker; past it the list is reported truncated. */

@@ -23,13 +23,14 @@ import type {
 } from "@t3tools/source-control-core/server/IssueTracker";
 
 import { adfToMarkdown, hasUnwritableContent, markdownToAdf } from "./adf.ts";
+import { JIRA_HOST, parseJiraIssueUrl } from "../shared/issueUrl.ts";
 import * as JiraApi from "./JiraApi.ts";
 
 const DESCRIPTOR: StandaloneIssueTrackerDescriptor = {
   tracker: JiraApi.KIND,
   displayName: "Jira",
   // Every Jira Cloud site; the one this server reads is part of the saved credential.
-  host: "atlassian.net",
+  host: JIRA_HOST,
   scopeNoun: "project",
   credential: {
     label: "API token",
@@ -40,16 +41,6 @@ const DESCRIPTOR: StandaloneIssueTrackerDescriptor = {
     ],
   },
 };
-
-/** `https://<site>.atlassian.net/browse/<PROJ>-<n>`, keeping the site as the workspace. */
-function parseJiraIssueUrl(url: URL) {
-  const site = url.host.toLowerCase();
-  if (url.protocol !== "https:" || !site.endsWith(`.${DESCRIPTOR.host}`)) return null;
-  const [, resource, key] = url.pathname.split("/");
-  if (resource !== "browse" || key === undefined) return null;
-  const scope = /^([A-Z][A-Z0-9_]*)-[1-9][0-9]*$/.exec(key)?.[1];
-  return scope === undefined ? null : { host: DESCRIPTOR.host, workspace: site, scope, key };
-}
 
 /** No reactions or development panel: Jira Cloud's public API serves neither. */
 const CAPABILITIES: IssueCapabilities = {

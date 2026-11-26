@@ -160,6 +160,46 @@ describe("resolveIssueLinkTarget", () => {
     ]).toEqual(["p2", "p1"]);
   });
 
+  it("reads a Jira link through the project bound to its key, on the connected site only", () => {
+    const trackers = {
+      trackers: [
+        {
+          tracker: IssueTrackerKind.make("jira"),
+          displayName: "Jira",
+          host: "atlassian.net",
+          scopeNoun: "project",
+          credential: { label: "API token", helpUrl: null },
+          connected: true,
+          account: "Julius",
+          detail: null,
+          workspace: "acme.atlassian.net",
+          scopes: [],
+        },
+      ],
+      bindings: {
+        [ProjectId.make("p1")]: { tracker: IssueTrackerKind.make("jira"), scope: "OPS" },
+        [ProjectId.make("p2")]: { tracker: IssueTrackerKind.make("jira"), scope: "RND" },
+      },
+    };
+    const resolve = (url: string) => resolveIssueLinkTarget({ url, projects, trackers });
+    expect(resolve("https://acme.atlassian.net/browse/RND-164")?.ref).toEqual({
+      projectId: "p2",
+      tracker: "jira",
+      host: "atlassian.net",
+      scope: "RND",
+      key: "RND-164",
+    });
+    expect(
+      resolve("https://ACME.atlassian.net/browse/RND-164?focusedCommentId=1")?.ref,
+    ).toMatchObject({ projectId: "p2", key: "RND-164" });
+    expect(resolve("https://acme.atlassian.net/jira/software/projects/RND/boards/1")).toBeNull();
+    expect(resolve("https://acme.atlassian.net.evil.example/browse/RND-164")).toBeNull();
+    // Project keys repeat across sites; only the connected site's links are its issues.
+    expect(resolve("https://othercorp.atlassian.net/browse/RND-164")).toBeNull();
+    // A Linear link never reaches a Jira binding, nor a Jira link a Linear one.
+    expect(resolve("https://linear.app/acme/issue/RND-164")).toBeNull();
+  });
+
   it.each([
     "https://github.com.evil.example/acme/web/issues/7",
     "https://github.com/acme/web/pull/7",
@@ -173,6 +213,8 @@ describe("mayContainStandaloneIssueLink", () => {
     ["[issue](https://linear.app/acme/issue/WEB-17)", true],
     ["[issue](https://LINEAR.APP/acme/issue/WEB-17)", true],
     ["[issue](https://github.com/acme/web/issues/7)", false],
+    ["[RND-164](https://acme.atlassian.net/browse/RND-164)", true],
+    ["[board](https://acme.atlassian.net/jira/software/projects/RND)", false],
   ])("classifies %s as %s", (text, expected) => {
     expect(mayContainStandaloneIssueLink(text)).toBe(expected);
   });
